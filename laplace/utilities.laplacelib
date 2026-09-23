@@ -1,0 +1,107 @@
+// Library Dependency on Splines 
+library{
+    import splines;
+}
+
+//@laplace 
+//@brief Composite Gauss–Legendre nodes quadrature integrator
+//@param data real a - Lower Integration Bound
+//@param data real b - Upper Integration Bound
+//@param data int  M - Number of equal-width panels the interval is cut into
+//@param data int  G - Gauss–Legendre points per panel  
+vector quad_nodes(data real a, data real b, data int M, data int G){
+    int N = M * G;
+    vector[N] X;
+
+    // Get panel width h = (b − a) / M
+    real h = (b - a) / M;
+
+    // Get the midpoint cm
+    vector[M] cm;
+    for(m in 1:M) cm[m] = a + (m - 0.5) * h;
+
+    // Use the splines to get to xi nodes 
+    vector[G] xi = splines::gl_nodes(G);
+
+    // Calculate the quad nodes 
+    for(m in 1:M){
+        for(g in 1:G){
+           X[(m - 1) * G + g] = cm[m] + (h / 2) * xi[g];
+        }
+    }
+    return X;
+}
+
+//@laplace 
+//@brief Composite Gauss–Legendre weights quadrature integrator
+//@param data real a - Lower Integration Bound
+//@param data real b - Upper Integration Bound
+//@param data int  M - Number of equal-width panels the interval is cut into
+//@param data int  G - Gauss–Legendre points per panel  
+vector quad_weights(data real a, data real b, data int M, data int G){
+    int N = M * G;
+    vector[N] X;
+
+    // Get panel width h = (b − a) / M
+    real h = (b - a) / M;
+
+    // Use the splines to get to xi weights
+    vector[G] wi = splines::gl_weights(G);
+
+    // Calculate the quad nodes 
+    for(m in 1:M){
+        for(g in 1:G){
+           X[(m - 1) * G + g] = (h / 2) * wi[g];
+        }
+    }
+    return X;
+}
+
+//@laplace 
+//@brief Log-space quadrature
+//@param vector f_log - Logarithm of positive integrand evaluation at the nodes from customer::quad_nodes() then log(w);
+//@param vector w     - The matching weights from customer::quad_weights();
+real log_quad(vector log_f, data vector w){
+    return log_sum_exp(w + log_f);
+}
+
+//@laplace 
+//@brief Discount factor per period 
+//@param vector t - Times in periods at which cash arrives 
+//@param real d   - Discount rate per period 
+vector disc_factor(vector t, real d){
+    // Calculate present value of one unit received at each time
+    return exp(-t * log1p(d));
+}
+
+//@laplace 
+//@brief Discount factor with continuous discount rate
+//@param vector t - Times in periods at which cash arrives 
+//@param real rho - Discount rate δ ∈ R≥0 -continuous discount rate
+vector cont_disc(vector t, real rho){
+    // Calculate present value of one unit received at each time.
+    return exp(-rho * t);
+}
+
+//@laplace 
+//@brief Gauss hypergeometric function
+//@param real a Parameter a
+//@param real b Parameter b
+//@param real c Parameter c
+//@param data real z Stopping Tolerance 
+//@param data int max_terms
+real h2f1(real a, real b, real c, real z, data real tol, data int max_terms){
+    vector[max_terms + 1] t;
+
+    // Initiate the t
+    t[1] = 1;
+
+    for(k in 1:max_terms){
+        t[k + 1] = t[k] * (((a + k) * (b + k)) / ((c + k) * (k + 1))) * z;
+
+        if(abs(t[k + 1]) < tol * abs(sum(t[2:k + 1]))){
+            return sum(t[1:k + 1]);
+        } 
+    }
+    return sum(t);
+}

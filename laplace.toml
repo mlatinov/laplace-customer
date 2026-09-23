@@ -1,0 +1,9 @@
+[dependencies.splines]
+git = "https://github.com/mlatinov/laplace-splines"
+tag = "0.1.0"
+subdir = "laplace"
+
+[dependencies.survival]
+git = "https://github.com/mlatinov/laplace-survival"
+tag = "0.1.1"
+subdir = "laplace"
