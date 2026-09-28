@@ -248,3 +248,50 @@ real churn_log_logistics_rmrl(real u, real alpha, real beta, data vector xq, dat
     vector[N] H = survival::srv_log_logistics_cumulative_hazard(u + xq, alpha, beta);
     return dot_product(wq, exp(-(H - Hu)));
 }
+
+// Subscription value (contractual CLV) ==========================================================================================================================
+//@laplace 
+//@brief Discrete subscription value: expected discounted margin from an active customer over the next K billing periods, paid at the start of each period while subscribed.
+//@param vector S_cond : Conditional survival S(u + k | u) for k = 0, 1, ..., K (first element is 1, the payment due now).
+//@param real m        : Margin per billing period.
+//@param real d        : Discount rate per billing period.
+//@return real         : Expected present value of the customer's future payments.
+//@math
+// V_{\text{disc}} = m \sum_{k=0}^{K} \frac{S(u+k \mid u)}{(1+d)^{k}}
+real churn_value_discrete(vector S_cond, real m, real d) {
+    int K = num_elements(S_cond) - 1;
+    real v_disc = 0;
+
+    for (k in 0:K)
+        v_disc += S_cond[k + 1] / pow(1 + d, k);
+
+    return m * v_disc;
+}
+
+//@laplace 
+//@brief Continuous subscription value for a Gompertz customer: expected revenue from now until the horizon tau, expressed in today's money.
+//@param real u         : Current tenure (u >= 0).
+//@param real m         : Margin per unit time (a rate), in the same time unit as u and tau.
+//@param real delta     : Continuous discount rate per unit time (delta >= 0).
+//@param real gamma     : Change in log hazard per unit of time for this customer.
+//@param real eta       : Log hazard at t = 0 for this customer.
+//@param data vector xq : Quadrature nodes on [0, tau], from quad_nodes().
+//@param data vector wq : Quadrature weights, from quad_weights().
+//@return real          : Expected present value of revenue over the next tau.
+//@math
+// V_{\text{cont}} = m \int_0^{\tau} e^{-\delta s}\, S(u+s \mid u)\, ds
+//   \approx m \sum_{g} w_g\, e^{-\delta x_g} \exp\left(-H_G(x_g;\ \gamma,\ \eta + \gamma u)\right)
+real churn_gompertz_value(real u, real m, real delta, real gamma, real eta, data vector xq, data vector wq){
+    int N = num_elements(xq);
+    real v_cont = 0;
+
+    for (i in 1:N){
+        // Conditional cumulative hazard over (u, u + x_i], via the Gompertz shift identity
+        real Hg = survival::srv_gompertz_cumulative_hazard(xq[i], gamma, eta + gamma * u);
+        // Discount factor: value today of money received at time x_i
+        real disc_node = exp(-delta * xq[i]);
+        // Accumulate weight * discount * conditional survival
+        v_cont += wq[i] * disc_node * exp(-Hg);
+    }
+    return m * v_cont;
+}
