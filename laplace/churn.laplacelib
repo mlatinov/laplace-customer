@@ -1,0 +1,72 @@
+// Libraries 
+library{
+    import survival
+}
+
+// Conditional survival and churn probability for active customers
+
+//@laplace
+//@brief Delta Cumulative Conditional survival Hazard from Gompertz model
+//@param vector u   : Current Time of Tenure for each customer
+//@param real s     : Look ahead 
+//@param real gamma : Change in log hazard per unit of time, shared by all observations.
+//@param vector eta : Per-observation log hazard at t = 0.
+vector churn_gompertz_delta_H(vector u, real s, real gamma, vector eta){
+    int N = num_elements(eta);
+
+    // Get the Cumulative Gompertz Models as H(u + s) and H(u) 
+    vector[N] Hs_u = survival::srv_gompertz_cumulative_hazard(u + s, gamma, eta);
+    vector[N] Hu = survival::srv_gompertz_cumulative_hazard(u, gamma, eta);
+
+    // Calculate delta 
+    return Hs_u - Hu;
+}
+
+//@laplace
+//@brief Delta Cumulative Conditional survival Hazard from Makeham model
+//@param vector u   : Current Time of Tenure for each customer
+//@param real s     : Look ahead 
+//@param real a     : Per-observation constant background hazard (a >= 0).
+//@param real gamma : Growth rate of the exponential component
+//@param vector eta : Per-observation log of the exponential component's scale b.
+vector churn_makeham_delta_H(vector u, real s, real a, real gamma, vector eta){
+    int N = num_elements(eta);
+
+    // Get the Cumulative Makeham Hazard as H(u + s) and H(s)
+    vector[N] Hs_u = survival::srv_makeham_cumulative_hazard(u + s, a , gamma, eta);
+    vector[N] Hu   = survival::srv_makeham_cumulative_hazard(u, a, gamma, eta);
+
+    // Return the delta Hsu  - Hu
+    return Hs_u - Hu;
+}
+
+//@laplace
+//@brief Delta Cumulative Conditional survival Hazard from Log-Logistics model
+//@param vector u    : Current Time of Tenure for each customer
+//@param real s      : Look ahead 
+//@param real  alpha : Per-observation scale parameter (alpha > 0).
+//@param real  beta  : Per-observation shape parameter (beta > 0).
+vector churn_log_logistics_delta_H(vector u, real s, real alpha, real beta){
+    int N = num_elements(u);
+
+    // Get the Cumulative Log-Logistic Hazard as H(u + s) and H(u)
+    vector[N] Hs_u = survival::srv_log_logistics_cumulative_hazard(u + s, alpha, beta);
+    vector[N] Hu  =  survival::srv_log_logistics_cumulative_hazard(u, alpha, beta);
+
+    // Return delta Cumulative Hazard
+    return Hs_u - Hu;
+}
+
+//@laplace
+//@brief Conditional survival
+//@param vector dH : Delta Cumulative Hazard coming from <func>_delta_H 
+vector churn_cond_surv(vector dH){
+    return -exp(-dH);
+}
+
+//@laplace
+//@brief Probability of survival
+//@param vector dH : Delta Cumulative Hazard coming from <func>_delta_H 
+vector churn_prob(vector dH){
+    return -expm1(-dH);
+}
