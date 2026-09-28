@@ -3,36 +3,105 @@ library{
     import survival
 }
 
-// Conditional survival and churn probability for active customers
+// Conditional survival and churn probability for active customers =====================================================================
 
+// Gompertz Models Functions and Overloads ---------------------------------------------------------------------------------------------
 //@laplace
-//@brief Delta Cumulative Conditional survival Hazard from Gompertz model
-//@param vector u   : Current Time of Tenure for each customer
-//@param real s     : Look ahead 
-//@param real gamma : Change in log hazard per unit of time, shared by all observations.
-//@param vector eta : Per-observation log hazard at t = 0.
-vector churn_gompertz_delta_H(vector u, real s, real gamma, vector eta){
-    int N = num_elements(eta);
+//@brief Increase in Gompertz cumulative hazard over the look-ahead window, Delta H = H(u + s) - H(u).
+//@param vector u   : Current tenure of each active customer (u >= 0).
+//@param real s     : Look-ahead window length (s > 0), in the same time unit as u.
+//@param real gamma : Change in log hazard per unit of time, shared by all customers.
+//@param real eta   : Log hazard at t = 0, shared by all customers.
+//@return vector    : Delta H for each customer (>= 0).
+//@math
+// \Delta H(u, s) = H(u+s) - H(u) = e^{\eta}\,\frac{e^{\gamma(u+s)} - e^{\gamma u}}{\gamma}
+vector churn_gompertz_delta_H(vector u, real s, real gamma, real eta){
+    int N = num_elements(u);
 
     // Get the Cumulative Gompertz Models as H(u + s) and H(u) 
-    vector[N] Hs_u = survival::srv_gompertz_cumulative_hazard(u + s, gamma, eta);
-    vector[N] Hu = survival::srv_gompertz_cumulative_hazard(u, gamma, eta);
+    vector[N] Hsu = survival::srv_gompertz_cumulative_hazard(u + s, gamma, eta);
+    vector[N] Hu  = survival::srv_gompertz_cumulative_hazard(u, gamma, eta);
 
     // Calculate delta 
-    return Hs_u - Hu;
+    return Hsu - Hu;
 }
 
 //@laplace
-//@brief Delta Cumulative Conditional survival Hazard from Makeham model
-//@param vector u   : Current Time of Tenure for each customer
-//@param real s     : Look ahead 
-//@param real a     : Per-observation constant background hazard (a >= 0).
-//@param real gamma : Growth rate of the exponential component
-//@param vector eta : Per-observation log of the exponential component's scale b.
-vector churn_makeham_delta_H(vector u, real s, real a, real gamma, vector eta){
-    int N = num_elements(eta);
+//@brief Increase in Gompertz cumulative hazard over the look-ahead window, per-customer gamma and eta.
+//@param vector u     : Current tenure of each active customer (u >= 0).
+//@param real s       : Look-ahead window length (s > 0), in the same time unit as u.
+//@param vector gamma : Per-customer change in log hazard per unit of time.
+//@param vector eta   : Per-customer log hazard at t = 0.
+//@return vector      : Delta H for each customer (>= 0).
+//@math
+// \Delta H_n(u_n, s) = e^{\eta_n}\,\frac{e^{\gamma_n(u_n+s)} - e^{\gamma_n u_n}}{\gamma_n}
+vector churn_gompertz_delta_H(vector u, real s, vector gamma, vector eta){
+    int N = num_elements(u);
 
-    // Get the Cumulative Makeham Hazard as H(u + s) and H(s)
+    // Get the Cumulative Gompertz Models as H(u + s) and H(u) 
+    vector[N] Hsu = survival::srv_gompertz_cumulative_hazard(u + s, gamma, eta);
+    vector[N] Hu  = survival::srv_gompertz_cumulative_hazard(u, gamma, eta);
+
+    // Calculate delta 
+    return Hsu - Hu;
+}
+
+//@laplace
+//@brief Increase in Gompertz cumulative hazard over the look-ahead window, shared gamma and per-customer eta.
+//@param vector u   : Current tenure of each active customer (u >= 0).
+//@param real s     : Look-ahead window length (s > 0), in the same time unit as u.
+//@param real gamma : Change in log hazard per unit of time, shared by all customers.
+//@param vector eta : Per-customer log hazard at t = 0 (e.g. X * beta).
+//@return vector    : Delta H for each customer (>= 0).
+//@math
+// \Delta H_n(u_n, s) = e^{\eta_n}\,\frac{e^{\gamma(u_n+s)} - e^{\gamma u_n}}{\gamma}
+vector churn_gompertz_delta_H(vector u, real s, real gamma, vector eta){
+    int N = num_elements(u);
+
+    // Get the Cumulative Gompertz Models as H(u + s) and H(u) 
+    vector[N] Hsu = survival::srv_gompertz_cumulative_hazard(u + s, gamma, eta);
+    vector[N] Hu  = survival::srv_gompertz_cumulative_hazard(u, gamma, eta);
+
+    // Calculate delta 
+    return Hsu - Hu;
+}
+
+// Makeham Model Functions and Overloads ---------------------------------------------------------------------------------------------
+//@laplace
+//@brief Increase in Gompertz-Makeham cumulative hazard over the look-ahead window, Delta H = H(u + s) - H(u).
+//@param vector u   : Current tenure of each active customer (u >= 0).
+//@param real s     : Look-ahead window length (s > 0), in the same time unit as u.
+//@param real a     : Constant background hazard (a >= 0), shared by all customers.
+//@param real gamma : Growth rate of the exponential component.
+//@param real eta   : Log of the exponential component's scale b, shared by all customers.
+//@return vector    : Delta H for each customer (>= 0).
+//@math
+// \Delta H(u, s) = a\,s + e^{\eta}\,\frac{e^{\gamma(u+s)} - e^{\gamma u}}{\gamma}
+vector churn_makeham_delta_H(vector u, real s, real a, real gamma, real eta){
+    int N = num_elements(u);
+
+    // Get the Cumulative Makeham Hazard as H(u + s) and H(u)
+    vector[N] Hsu = survival::srv_makeham_cumulative_hazard(u + s, a, gamma, eta);
+    vector[N] Hu   = survival::srv_makeham_cumulative_hazard(u, a, gamma, eta);
+
+    // Return the delta Hsu  - Hu
+    return Hsu - Hu;
+}
+
+//@laplace
+//@brief Increase in Gompertz-Makeham cumulative hazard over the look-ahead window, per-customer eta.
+//@param vector u   : Current tenure of each active customer (u >= 0).
+//@param real s     : Look-ahead window length (s > 0), in the same time unit as u.
+//@param real a     : Constant background hazard (a >= 0), shared by all customers.
+//@param real gamma : Growth rate of the exponential component.
+//@param vector eta : Per-customer log of the exponential component's scale b.
+//@return vector    : Delta H for each customer (>= 0).
+//@math
+// \Delta H_n(u_n, s) = a\,s + e^{\eta_n}\,\frac{e^{\gamma(u_n+s)} - e^{\gamma u_n}}{\gamma}
+vector churn_makeham_delta_H(vector u, real s, real a, real gamma, vector eta){
+    int N = num_elements(u);
+
+    // Get the Cumulative Makeham Hazard as H(u + s) and H(u)
     vector[N] Hs_u = survival::srv_makeham_cumulative_hazard(u + s, a , gamma, eta);
     vector[N] Hu   = survival::srv_makeham_cumulative_hazard(u, a, gamma, eta);
 
@@ -40,12 +109,16 @@ vector churn_makeham_delta_H(vector u, real s, real a, real gamma, vector eta){
     return Hs_u - Hu;
 }
 
+// Log-Logistics Model and Overloads ------------------------------------------------------------------------------------------------
 //@laplace
-//@brief Delta Cumulative Conditional survival Hazard from Log-Logistics model
-//@param vector u    : Current Time of Tenure for each customer
-//@param real s      : Look ahead 
-//@param real  alpha : Per-observation scale parameter (alpha > 0).
-//@param real  beta  : Per-observation shape parameter (beta > 0).
+//@brief Increase in log-logistic cumulative hazard over the look-ahead window, Delta H = H(u + s) - H(u).
+//@param vector u    : Current tenure of each active customer (u >= 0).
+//@param real s      : Look-ahead window length (s > 0), in the same time unit as u.
+//@param real alpha  : Scale parameter (alpha > 0), the median lifetime; shared by all customers.
+//@param real beta   : Shape parameter (beta > 0); shared by all customers.
+//@return vector     : Delta H for each customer (>= 0).
+//@math
+// \Delta H(u, s) = \log\left(1 + \left(\tfrac{u+s}{\alpha}\right)^{\beta}\right) - \log\left(1 + \left(\tfrac{u}{\alpha}\right)^{\beta}\right)
 vector churn_log_logistics_delta_H(vector u, real s, real alpha, real beta){
     int N = num_elements(u);
 
@@ -58,15 +131,120 @@ vector churn_log_logistics_delta_H(vector u, real s, real alpha, real beta){
 }
 
 //@laplace
-//@brief Conditional survival
-//@param vector dH : Delta Cumulative Hazard coming from <func>_delta_H 
+//@brief Increase in log-logistic cumulative hazard over the look-ahead window, per-customer alpha and beta.
+//@param vector u      : Current tenure of each active customer (u >= 0).
+//@param real s        : Look-ahead window length (s > 0), in the same time unit as u.
+//@param vector alpha  : Per-customer scale parameter (alpha > 0).
+//@param vector beta   : Per-customer shape parameter (beta > 0).
+//@return vector       : Delta H for each customer (>= 0).
+//@math
+// \Delta H_n(u_n, s) = \log\left(1 + \left(\tfrac{u_n+s}{\alpha_n}\right)^{\beta_n}\right) - \log\left(1 + \left(\tfrac{u_n}{\alpha_n}\right)^{\beta_n}\right)
+vector churn_log_logistics_delta_H(vector u, real s, vector alpha, vector beta){
+    int N = num_elements(u);
+
+    // Get the Cumulative Log-Logistic Hazard as H(u + s) and H(u)
+    vector[N] Hs_u = survival::srv_log_logistics_cumulative_hazard(u + s, alpha, beta);
+    vector[N] Hu  =  survival::srv_log_logistics_cumulative_hazard(u, alpha, beta);
+
+    // Return delta Cumulative Hazard
+    return Hs_u - Hu;
+}
+
+// Common AFT case, covariates in alpha (log alpha = X * b), one shared shape beta.
+//@laplace
+//@brief Increase in log-logistic cumulative hazard over the look-ahead window, per-customer alpha and shared beta (AFT covariates).
+//@param vector u      : Current tenure of each active customer (u >= 0).
+//@param real s        : Look-ahead window length (s > 0), in the same time unit as u.
+//@param vector alpha  : Per-customer scale parameter (alpha > 0), e.g. exp(b0 + X * b).
+//@param real beta     : Shape parameter (beta > 0), shared by all customers.
+//@return vector       : Delta H for each customer (>= 0).
+//@math
+// \Delta H_n(u_n, s) = \log\left(1 + \left(\tfrac{u_n+s}{\alpha_n}\right)^{\beta}\right) - \log\left(1 + \left(\tfrac{u_n}{\alpha_n}\right)^{\beta}\right)
+vector churn_log_logistics_delta_H(vector u, real s, vector alpha, real beta){
+    int N = num_elements(u);
+    vector[N] beta_v = rep_vector(beta, N);
+
+    // Get the Cumulative Log-Logistic Hazard as H(u + s) and H(u)
+    vector[N] Hs_u = survival::srv_log_logistics_cumulative_hazard(u + s, alpha, beta_v);
+    vector[N] Hu  =  survival::srv_log_logistics_cumulative_hazard(u, alpha, beta_v);
+
+    // Return delta Cumulative Hazard
+    return Hs_u - Hu;
+}
+
+// Agnostic function to the model --------------------------------------------------------------------------------------------
+//@laplace
+//@brief Conditional survival: probability a customer active at tenure u is still active at u + s.
+//@param vector dH : Delta H from any churn_<model>_delta_H function.
+//@return vector   : S(u + s | u) for each customer, in (0, 1].
+//@math
+// S(u+s \mid u) = \frac{S(u+s)}{S(u)} = \exp\left(-\Delta H\right)
 vector churn_cond_surv(vector dH){
-    return -exp(-dH);
+    return exp(-dH);
 }
 
 //@laplace
-//@brief Probability of survival
-//@param vector dH : Delta Cumulative Hazard coming from <func>_delta_H 
+//@brief Churn probability: probability a customer active at tenure u cancels before u + s.
+//@param vector dH : Delta H from any churn_<model>_delta_H function.
+//@return vector   : P(churn in (u, u + s]) for each customer, in [0, 1).
+//@math
+// P_{\text{churn}} = 1 - \exp\left(-\Delta H\right) = -\operatorname{expm1}\left(-\Delta H\right)
 vector churn_prob(vector dH){
     return -expm1(-dH);
+}
+
+// Restricted mean residual lifetime =====================================================================================
+
+// Gompertz RMRL -------------------------------------------------------------------------------------------
+//@laplace 
+//@brief Restricted mean residual lifetime from the Gompertz model: expected time subscribed during the next tau, given active at tenure u.
+//@param real u         : Current tenure (u >= 0).
+//@param real gamma     : Change in log hazard per unit of time.
+//@param real eta       : Log hazard at t = 0 for this customer.
+//@param data vector xq : Quadrature nodes on [0, tau], from quad_nodes().
+//@param data vector wq : Quadrature weights, from quad_weights().
+//@return real          : RMRL(u, tau), in [0, tau].
+//@math
+// \mathrm{RMRL}(u,\tau) = \int_0^{\tau} S(u+s \mid u)\,ds \approx \sum_{g} w_g \exp\left(-H_G(x_g;\ \gamma,\ \eta + \gamma u)\right) \\
+// \text{using the shift identity } H_G(u+s) - H_G(u) = H_G(s;\ \gamma,\ \eta + \gamma u)
+real churn_gompertz_rmrl(real u, real gamma, real eta, data vector xq, data vector wq){
+    int N       = num_elements(xq);
+    vector[N] H = survival::srv_gompertz_cumulative_hazard(xq, gamma, eta + gamma * u);
+    return dot_product(wq, exp(-H));
+}
+
+// Makeham RMRL -----------------------------------------------------------------------------------------------------
+//@laplace 
+//@brief Restricted mean residual lifetime from the Gompertz-Makeham model: expected time subscribed during the next tau, given active at tenure u.
+//@param real u         : Current tenure (u >= 0).
+//@param real a         : Constant background hazard (a >= 0).
+//@param real gamma     : Growth rate of the exponential component.
+//@param real eta       : Log of the exponential component's scale b for this customer.
+//@param data vector xq : Quadrature nodes on [0, tau], from quad_nodes().
+//@param data vector wq : Quadrature weights, from quad_weights().
+//@return real          : RMRL(u, tau), in [0, tau].
+//@math
+// \mathrm{RMRL}(u,\tau) \approx \sum_{g} w_g \exp\left(-H_M(x_g;\ a,\ \gamma,\ \eta + \gamma u)\right),
+// \quad H_M(u+s) - H_M(u) = a\,s + H_G(s;\ \gamma,\ \eta + \gamma u)
+real churn_makeham_rmrl(real u, real a, real gamma, real eta, data vector xq, data vector wq){
+    return dot_product(wq, exp(-(survival::srv_makeham_cumulative_hazard(xq, a, gamma, eta + gamma * u))));
+}
+
+// Log-logistics RMRL -----------------------------------------------------------------------------------------------------
+//@laplace
+//@brief Restricted mean residual lifetime from the log-logistic model: expected time subscribed during the next tau, given active at tenure u. No shift identity, so H(u) is subtracted explicitly.
+//@param real u         : Current tenure (u >= 0).
+//@param real alpha     : Scale parameter (alpha > 0) for this customer.
+//@param real beta      : Shape parameter (beta > 0).
+//@param data vector xq : Quadrature nodes on [0, tau], from quad_nodes().
+//@param data vector wq : Quadrature weights, from quad_weights().
+//@return real          : RMRL(u, tau), in [0, tau].
+//@math
+// \mathrm{RMRL}(u,\tau) \approx \sum_{g} w_g \exp\left(-\left[H_{LL}(u + x_g) - H_{LL}(u)\right]\right)
+// = \sum_{g} w_g\,\frac{1 + (u/\alpha)^{\beta}}{1 + \left((u + x_g)/\alpha\right)^{\beta}}
+real churn_log_logistics_rmrl(real u, real alpha, real beta, data vector xq, data vector wq){
+    int N       = num_elements(xq);
+    real Hu     = survival::srv_log_logistics_cumulative_hazard(u, alpha, beta);
+    vector[N] H = survival::srv_log_logistics_cumulative_hazard(u + xq, alpha, beta);
+    return dot_product(wq, exp(-(H - Hu)));
 }
