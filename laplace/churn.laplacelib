@@ -297,6 +297,8 @@ real churn_gompertz_value(real u, real m, real delta, real gamma, real eta, data
 }
 
 // Mixture cure model: Customers who never churn ======================================================================================
+
+// Generic Agnostic Functions ---------------------------------------------------------------------------------------------------------
 //@laplace 
 //@brief Generic Churn Cure Log-Likelihood Function 
 //@param vector log_h : Log of a Hazard function
@@ -314,6 +316,14 @@ vector churn_cure_loglik(vector log_h, vector H, vector psi, data vector d){
     return d .* (log(1 - pn) + log_h  - H) + (1 - d) .* log(exp(log_pn) + exp(log1m_inv_logit(psi) - H));
 }
 
+vector churn_cure_loglik(vector log_h, vector H, real psi, data vector d){
+    int N = num_elements(H);
+    real pn       = inv_logit(psi);
+    real log_pn   = log_inv_logit(psi);
+    return d .* (log(1 - pn) + log_h  - H) + (1 - d) .* log(exp(log_pn) + exp(log1m_inv_logit(psi) - H));
+}
+
+
 //@laplace 
 //@brief Generic Churn Cure Sum Log-Likelihood Function 
 //@param vector log_h : Log of a Hazard function
@@ -326,7 +336,25 @@ vector churn_cure_loglik(vector log_h, vector H, vector psi, data vector d){
 real churn_cure_ll(vector log_h, vector H, vector psi, data vector d){
     return sum(churn_cure_loglik(log_h, H, psi, d));
 }
+real churn_cure_ll(vector log_h, vector H, real psi, data vector d){
+    return sum(churn_cure_loglik(log_h, H, psi, d));
+}
 
+//@laplace 
+//@brief Loyalty score: Probability a customer is a never-churner given how long they have already stayed
+//@param psi          : Log-odds of being a never-churner.
+//@param H            : Cumulative Hazard Function 
+//@return vector      : P(loyal | T_n > t_n) in (0, 1) for each customer; meaningful for active customers (d = 0) only.
+//@math
+// P(\text{loyal} \mid T_n > t_n) = \frac{\pi_n}{\pi_n + (1-\pi_n)\,e^{-H(t_n)}} = \operatorname{logit}^{-1}\left(\psi_n + H(t_n)\right)
+vector churn_cure_p_loyal(vector psi, vector H){
+    return inv_logit(H + psi);
+}
+vector churn_cure_p_loyal(real psi, vector H){
+    return inv_logit(H + psi);
+}
+
+// Gompertz Cure Functions ------------------------------------------------------------------------------------------------------------------------------------------------------ 
 //@laplace
 //@brief Churn Cure Gompertz Log pointwise Density function 
 //@param vector t   : Time since origin t > 0. 
@@ -339,16 +367,36 @@ real churn_cure_ll(vector log_h, vector H, vector psi, data vector d){
 // \log h(t_n) = \eta_n + \gamma t_n, \quad H(t_n) = e^{\eta_n}\,\frac{e^{\gamma t_n} - 1}{\gamma} \\
 // \log L = \sum_{n=1}^{N} \left\{ d_n\left[\log(1-\pi_n) + \eta_n + \gamma t_n - H(t_n)\right] + (1-d_n)\log\left(\pi_n + (1-\pi_n)\,e^{-H(t_n)}\right) \right\}
 real churn_cure_gompertz_lpdf(vector t , real gamma, vector eta, vector psi, data vector d){
-    // Get Pn as logit-1 of psi 
-    vector[num_elements(psi)] pn     = inv_logit(psi);
-    vector[num_elements(psi)] log_pn = log_inv_logit(psi);
-
     // Get the Gompertz Cumulative Hazard and log Hazard
     vector[num_elements(t)] H = survival::srv_gompertz_cumulative_hazard(t, gamma, eta);
     vector[num_elements(t)] h = survival::srv_gompertz_log_hazard(t, gamma, eta);
 
     // Return the Churn Cure Gompertz Log pointwise Density
-    return sum(d .* (log(1 - pn) + h - H) + (1 - d) .* log(pn + (1 - pn) .* exp(-H)));  
+    return churn_cure_ll(h, H, psi, d); 
+}
+real churn_cure_gompertz_lpdf(vector t , real gamma, vector eta, real psi, data vector d){
+    // Get the Gompertz Cumulative Hazard and log Hazard
+    vector[num_elements(t)] H = survival::srv_gompertz_cumulative_hazard(t, gamma, eta);
+    vector[num_elements(t)] h = survival::srv_gompertz_log_hazard(t, gamma, eta);
+
+    // Return the Churn Cure Gompertz Log pointwise Density
+    return churn_cure_ll(h, H, psi, d); 
+}
+real churn_cure_gompertz_lpdf(vector t , vector gamma, vector eta, vector psi, data vector d){
+    // Get the Gompertz Cumulative Hazard and log Hazard
+    vector[num_elements(t)] H = survival::srv_gompertz_cumulative_hazard(t, gamma, eta);
+    vector[num_elements(t)] h = survival::srv_gompertz_log_hazard(t, gamma, eta);
+
+    // Return the Churn Cure Gompertz Log pointwise Density
+    return churn_cure_ll(h, H, psi, d); 
+}
+real churn_cure_gompertz_lpdf(vector t , vector gamma, vector eta, real psi, data vector d){
+    // Get the Gompertz Cumulative Hazard and log Hazard
+    vector[num_elements(t)] H = survival::srv_gompertz_cumulative_hazard(t, gamma, eta);
+    vector[num_elements(t)] h = survival::srv_gompertz_log_hazard(t, gamma, eta);
+
+    // Return the Churn Cure Gompertz Log pointwise Density
+    return churn_cure_ll(h, H, psi, d); 
 }
 
 //@laplace 
@@ -372,13 +420,121 @@ real churn_cure_gompertz_rng(real gamma, real eta, real psi){
     }
 }
 
+// Makeham Cure Functions ----------------------------------------------------------------------------------------------------------------------------------------------
 //@laplace 
-//@brief Loyalty score: Probability a customer is a never-churner given how long they have already stayed
-//@param psi          : Log-odds of being a never-churner.
-//@param H            : Cumulative Hazard Function 
-//@return vector      : P(loyal | T_n > t_n) in (0, 1) for each customer; meaningful for active customers (d = 0) only.
+//@brief Churn Cure Makeham Log pointwise Density function 
+//@param vector t   : Time since origin t > 0. 
+//@param real gamma : Change in log hazard per unit of time for this customer.
+//@param vector eta : Per-customer log hazard at t = 0.
+//@param vector psi : Log-odds of being a never-churner.
+//@param data vector d : Event Indicator.
+//@return real      : Total log likelihood of the Makeham mixture cure model, summed over customers.
 //@math
-// P(\text{loyal} \mid T_n > t_n) = \frac{\pi_n}{\pi_n + (1-\pi_n)\,e^{-H(t_n)}} = \operatorname{logit}^{-1}\left(\psi_n + H(t_n)\right)
-vector churn_cure_p_loyal(vector psi, vector H){
-    return inv_logit(H + psi);
+// \pi_n = \operatorname{logit}^{-1}(\psi_n) \\
+// \log h(t_n) = \log\left(a + e^{\eta_n + \gamma t_n}\right), \quad H(t_n) = a\,t_n + e^{\eta_n}\,\frac{e^{\gamma t_n} - 1}{\gamma} \\
+// \log L = \sum_{n=1}^{N} \left\{ d_n\left[\log(1-\pi_n) + \log h(t_n) - H(t_n)\right] + (1-d_n)\log\left(\pi_n + (1-\pi_n)\,e^{-H(t_n)}\right) \right\}
+real churn_cure_makeham_lpdf(vector t, real a, real gamma, vector eta, vector psi, data vector d){
+    // Get the Makeham Cumulative Hazard and log Hazard
+    vector[num_elements(t)] H = survival::srv_makeham_cumulative_hazard(t, a, gamma, eta);
+    vector[num_elements(t)] h = survival::srv_makeham_log_hazard(t, a, gamma, eta);
+
+    // Return the Churn Cure Makeham Log pointwise Density
+    return churn_cure_ll(h, H, psi, d);
+}
+real churn_cure_makeham_lpdf(vector t, vector a, real gamma, vector eta, vector psi, data vector d){
+    // Get the Makeham Cumulative Hazard and log Hazard
+    vector[num_elements(t)] H = survival::srv_makeham_cumulative_hazard(t, a, gamma, eta);
+    vector[num_elements(t)] h = survival::srv_makeham_log_hazard(t, a, gamma, eta);
+
+    // Return the Churn Cure Makeham Log pointwise Density
+    return churn_cure_ll(h, H, psi, d);
+}
+real churn_cure_makeham_lpdf(vector t, vector a, real gamma, vector eta, real psi, data vector d){
+    // Get the Makeham Cumulative Hazard and log Hazard
+    vector[num_elements(t)] H = survival::srv_makeham_cumulative_hazard(t, a, gamma, eta);
+    vector[num_elements(t)] h = survival::srv_makeham_log_hazard(t, a, gamma, eta);
+
+    // Return the Churn Cure Makeham Log pointwise Density
+    return churn_cure_ll(h, H, psi, d);
+}
+real churn_cure_makeham_lpdf(vector t, real a, real gamma, vector eta, real psi, data vector d){
+    // Get the Makeham Cumulative Hazard and log Hazard
+    vector[num_elements(t)] H = survival::srv_makeham_cumulative_hazard(t, a, gamma, eta);
+    vector[num_elements(t)] h = survival::srv_makeham_log_hazard(t, a, gamma, eta);
+
+    // Return the Churn Cure Makeham Log pointwise Density
+    return churn_cure_ll(h, H, psi, d);
+}
+
+//@laplace 
+//@brief Churn Cure Makeham Random Number Generator 
+//@param real a         : Constant background hazard (a >= 0).
+//@param real gamma     : Change in log hazard per unit of time for this customer.
+//@param real eta       : Log hazard at t = 0 for this customer.
+//@param vector psi     : Log-odds of being a never-churner.
+//@return real          : One simulated tenure; positive_infinity() for a never-churner (or a cured Gompertz draw when gamma < 0).
+//@math
+// L \sim \mathrm{Bernoulli}\left(\operatorname{logit}^{-1}(\psi)\right) \\
+// T = \infty \ \text{if } L = 1, \qquad T = \min(T_a, T_G) \ \text{if } L = 0 \\
+// T_a \sim \mathrm{Exponential}(a), \quad T_G = \frac{1}{\gamma}\log\left(1 + \gamma E e^{-\eta}\right),\ E \sim \mathrm{Exponential}(1) \ (T_G = \infty \text{ when } 1 + \gamma E e^{-\eta} \le 0)
+real churn_cure_makeham_rng(real a, real gamma, real eta, real psi){
+    real L = bernoulli_logit_rng(psi);
+
+    if(L == 0){
+        return positive_infinity();
+    }else{
+        real Ta = exponential_rng(a);
+        real Tg = survival::srv_gompertz_rng(gamma, eta); 
+        return Ta < Tg ? Ta : Tg;
+    }
+}
+
+// Log-Logistics Cure Functions ----------------------------------------------------------------------------------------------------------------------------------------
+//@laplace 
+//@brief Churn Cure Log-Logistics Log pointwise Density function 
+//@param vector t   : Time since origin t > 0. 
+//@param real alpha : Scale parameter (alpha > 0).
+//@param real beta    : Shape parameter (beta > 0).
+//@param vector psi   : Log-odds of being a never-churner.
+//@param data vector d : Event Indicator.
+//@return real         : Total log likelihood of the Log-Logistics mixture cure model, summed over customers.
+//@math
+// \pi_n = \operatorname{logit}^{-1}(\psi_n) \\
+// \log h(t_n) = \log\beta - \log\alpha_n + (\beta - 1)\left(\log t_n - \log\alpha_n\right) - \operatorname{log1p}\left((t_n/\alpha_n)^{\beta}\right), \quad H(t_n) = \operatorname{log1p}\left((t_n/\alpha_n)^{\beta}\right) \\
+// \log L = \sum_{n=1}^{N} \left\{ d_n\left[\log(1-\pi_n) + \log h(t_n) - H(t_n)\right] + (1-d_n)\log\left(\pi_n + (1-\pi_n)\,e^{-H(t_n)}\right) \right\}
+real churn_cure_log_logistics_lpdf(vector t, real alpha, real beta, vector psi, data vector d){
+    // Get the Log-Logistics Cumulative Hazard and log Hazard
+    vector[num_elements(t)] H = survival::srv_log_logistics_cumulative_hazard(t, alpha, beta);
+    vector[num_elements(t)] h = survival::srv_log_logistics_log_hazard(t, alpha, beta);
+
+    // Return the Churn Cure Log-Logistics Log pointwise Density
+    return churn_cure_ll(h, H, psi, d);
+}
+real churn_cure_log_logistics_lpdf(vector t, vector alpha, vector beta, vector psi, data vector d){
+    // Get the Log-Logistics Cumulative Hazard and log Hazard
+    vector[num_elements(t)] H = survival::srv_log_logistics_cumulative_hazard(t, alpha, beta);
+    vector[num_elements(t)] h = survival::srv_log_logistics_log_hazard(t, alpha, beta);
+
+    // Return the Churn Cure Log-Logistics Log pointwise Density
+    return churn_cure_ll(h, H, psi, d);
+}
+
+//@laplace 
+//@brief Churn Cure Log-Logistics Random Number Generator 
+//@param real alpha : Scale parameter (alpha > 0).
+//@param real beta    : Shape parameter (beta > 0).
+//@param vector psi     : Log-odds of being a never-churner.
+//@return real          : One simulated tenure; positive_infinity() for a never-churner (or alpha * pow((U / 1- U), 1 / beta) where U ~ uniform(0, 1)).
+//@math
+// L \sim \mathrm{Bernoulli}\left(\operatorname{logit}^{-1}(\psi)\right) \\
+// T = \infty \ \text{if } L = 1, \qquad T = \alpha\left(\frac{U}{1-U}\right)^{1/\beta},\ U \sim \mathrm{Uniform}(0,1) \ \text{if } L = 0
+real churn_cure_log_logistics_rng(real alpha, real beta, real psi){
+    real L = bernoulli_logit_rng(psi);
+    
+    if(L == 1){
+        return positive_infinity();
+    }else{
+        real U = uniform_rng(0, 1);
+        return alpha * pow((U / 1- U), 1 / beta);
+    }
 }
