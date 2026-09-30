@@ -758,3 +758,129 @@ real churn_frailty_log_logistics_rng(real alpha, real beta, real theta){
 Model cancellation as the first of several distinct exit routes, each with its own hazard and drivers,
 and report the probability of leaving through each route
 */
+
+// Generic Agnostic Functions ---------------------------------------------------------------------------------------------------------------------------------------------
+//@laplace
+//@brief Churn Competing Log Likelihood 
+//@param matrix[n, c] log_h           : Matrix of Log Hazard Functions 
+//@param matrix[n, c] H               : Matrix of Cumulative Hazard Functions 
+//@param data array[] int cause       : Cause that ended the subscription; 0 = active. 
+//@return vector Churn Competing Log Likelihood 
+vector churn_competing_loglik(matrix log_h, matrix H, data array[] int cause){
+    int N = num_elements(cause);
+    vector[N] ll;
+
+    for (n in 1:N) {
+        if (cause[n] > 0) {
+            ll[n] = log_h[n, cause[n]] - sum(H[n]);
+        } else {
+            ll[n] = -sum(H[n]);
+        }
+    }
+    return ll;
+}
+//@laplace 
+//@brief Churn Sum Competing Log Likelihood 
+//@param matrix[n, c] log_h           : Matrix of Log Hazard Functions 
+//@param matrix[n, c] H               : Matrix of Cumulative Hazard Functions 
+//@param data array[] int cause       : Cause that ended the subscription; 0 = active. 
+//@return real Sum Competing Log Likelihood 
+real churn_competing_ll(matrix log_h, matrix H, data array[] int cause){
+    return sum(churn_competing_loglik(log_h, H, cause));
+}
+
+//@laplace 
+//@brief Churn Competing Cumulative Incidence Function (CIF)
+//@param matrix[i, c] log_h_q : Matrix of Log Hazard Functions over u + xi
+//@param matrix[i, c] dH_q    : Matrix of Delta Cumulative Hazard Functions as H_c(u + x_i) - H_c(u)
+//@param data vector wd       : Quadrature weights
+//@return a vector of Cumulative Incidence
+vector churn_competing_cif(matrix log_h_q, matrix dH_q, data vector wq){
+    int N = rows(log_h_q);
+    int C = cols(log_h_q);
+
+    vector[C] cif;
+    
+    for (c in 1:C) {
+        cif[c] = 0;
+        
+        for (i in 1:N) {
+            real total_dH = 0;
+            
+            for (j in 1:C) {
+                total_dH += dH_q[i, j];
+        }
+        // Calculate  Cumulative Incidence Function 
+        cif[c] += wq[i] * exp(log_h_q[i, c] - total_dH);
+        }
+    }
+    return cif;
+}
+
+// Competing Risk Gompertz ------------------------------------------------------------------------------------------------------------------------------
+//@laplace
+//@brief Churn Competing Risks Gompertz Log Pointwise Density Function 
+//@param vector t       : Time since origin t > 0.
+//@param matrix[n, c] gamma    : Change in log hazard per unit and cause  .
+//@param matrix[n, c] eta      : Per-customer and cause log hazard at t = 0.
+//@param data array int cause  : Cause that ended the subscription; 0 = active
+//@return real Compering Risk Gompertz Sum Competing Log-Likelihood 
+real churn_competing_gompertz_lpdf(vector t, vector gamma, matrix eta, data array[] int cause){
+    int N = rows(eta);
+    int C = cols(eta);
+
+    matrix[N, C] log_h;
+    matrix[N, C] Hc;
+
+    // Calculate the Competing Cumulative Hazard and Competing Log Hazard per cause 
+    for(n in 1:N){
+        for(c in 1:C){
+            log_h[n, c] = survival::srv_gompertz_log_hazard(t[n], eta[n, c], gamma[n]);
+            Hc[n, c]    = survival::srv_gompertz_cumulative_hazard(t[n], eta[n, c], gamma[n]);
+        }
+    }
+
+    // Return the Sum Competing Log-Likelihood 
+    return churn_competing_ll(log_h, Hc, cause);
+}
+real churn_competing_gompertz_lpdf(vector t, matrix gamma, matrix eta, data array[] int cause){
+    int N = rows(eta);
+    int C = cols(eta);
+
+    matrix[N, C] log_h;
+    matrix[N, C] Hc;
+
+    // Calculate the Competing Cumulative Hazard and Competing Log Hazard per cause 
+    for(n in 1:N){
+        for(c in 1:C){
+            log_h[n, c] = survival::srv_gompertz_log_hazard(t[n], eta[n, c], gamma[n, c]);
+            Hc[n, c]    = survival::srv_gompertz_cumulative_hazard(t[n], eta[n, c], gamma[n, c]);
+        }
+    }
+
+    // Return the Sum Competing Log-Likelihood 
+    return churn_competing_ll(log_h, Hc, cause);
+}
+
+//@laplace
+//@brief Churn Competing Gompertz Random Number Generation
+//@param vector gamma  : Change in log hazard per unit of time for this customer.
+//@param vector eta    : Log hazard at t = 0.
+//@return real 
+vector churn_competing_gompertz_rng(vector gamma, vector eta){
+    int C = num_elements(gamma);
+    vector[C] Ec;
+    vector[C] Tc;
+    vector[2] T;
+    
+    for(c in 1:C){
+        Ec[c] = exponential_rng(1);
+        
+        if(0 >= 1 + gamma[c] * Ec[c] * exp(-eta[c])){
+            Tc[c] = positive_infinity();
+        }else{
+            Tc[c] = (1 / gamma[c]) * log(1 + gamma[c] * Ec[c] * exp(-eta[c]));
+        }
+    }
+    return Tc;
+}
