@@ -478,12 +478,12 @@ real churn_cure_makeham_lpdf(vector t, real a, real gamma, vector eta, real psi,
 // T = \infty \ \text{if } L = 1, \qquad T = \min(T_a, T_G) \ \text{if } L = 0 \\
 // T_a \sim \mathrm{Exponential}(a), \quad T_G = \frac{1}{\gamma}\log\left(1 + \gamma E e^{-\eta}\right),\ E \sim \mathrm{Exponential}(1) \ (T_G = \infty \text{ when } 1 + \gamma E e^{-\eta} \le 0)
 real churn_cure_makeham_rng(real a, real gamma, real eta, real psi){
-    real L = bernoulli_logit_rng(psi);
+    int L = bernoulli_logit_rng(psi);
 
     if(L == 0){
         return positive_infinity();
     }else{
-        real Ta = exponential_rng(a);
+        real Ta = exponential_rng(log(a));
         real Tg = survival::srv_gompertz_rng(gamma, eta); 
         return Ta < Tg ? Ta : Tg;
     }
@@ -523,18 +523,238 @@ real churn_cure_log_logistics_lpdf(vector t, vector alpha, vector beta, vector p
 //@brief Churn Cure Log-Logistics Random Number Generator 
 //@param real alpha : Scale parameter (alpha > 0).
 //@param real beta    : Shape parameter (beta > 0).
-//@param vector psi     : Log-odds of being a never-churner.
+//@param real psi     : Log-odds of being a never-churner.
 //@return real          : One simulated tenure; positive_infinity() for a never-churner (or alpha * pow((U / 1- U), 1 / beta) where U ~ uniform(0, 1)).
 //@math
 // L \sim \mathrm{Bernoulli}\left(\operatorname{logit}^{-1}(\psi)\right) \\
 // T = \infty \ \text{if } L = 1, \qquad T = \alpha\left(\frac{U}{1-U}\right)^{1/\beta},\ U \sim \mathrm{Uniform}(0,1) \ \text{if } L = 0
 real churn_cure_log_logistics_rng(real alpha, real beta, real psi){
-    real L = bernoulli_logit_rng(psi);
+    int L = bernoulli_logit_rng(psi);
     
     if(L == 1){
         return positive_infinity();
     }else{
         real U = uniform_rng(0, 1);
-        return alpha * pow((U / 1- U), 1 / beta);
+        return alpha * pow((U / (1- U)), 1 / beta);
     }
 }
+
+// Gamma frailty: unmeasured loyalty ======================================================================================================================================
+/*
+Allow customers with identical covariates to differ in an unmeasured propensity to churn, and
+estimate each customer’s propensity from their own history.
+*/
+
+// Generic Agnostics Functions -------------------------------------------------------------------------------------------------------------------------------------------
+//@laplace 
+//@brief Generic Churn Fragility Log-Likelihood
+//@param vector log_h  : Log Hazard Function 
+//@param vector H      : Cumulative Hazard Function 
+//@param real theta    : Fragility Variance
+//@param data vector d : Event Indicator  
+//@return vector of Fragility Log-Likelihood
+//@math
+// \omega_n \sim \mathrm{Gamma}(1/\theta,\, 1/\theta) \\
+// \ell_n = d_n\left[\log h(t_n) - \operatorname{log1p}\left(\theta H(t_n)\right)\right] - H(t_n)\,\frac{\operatorname{log1p}\left(\theta H(t_n)\right)}{\theta H(t_n)}
+vector churn_frailty_loglik(vector log_h, vector H, real theta, data vector d){
+    return d .* (log_h - log1p(theta * H)) - H .* ((log1p(theta * H)) ./ (theta * H));
+}
+
+//@laplace 
+//@brief Generic Churn Sum Fragility Log-Likelihood 
+//@param vector log_h  : Log Hazard Function 
+//@param vector H      : Cumulative Hazard Function  
+//@param real theta    : Fragility Variance
+//@param data vector d : Event Indicator  
+//@return real Sum of the Fragility Log-Likelihood
+//@math
+// \log L = \sum_{n=1}^{N} \left\{ d_n\left[\log h(t_n) - \operatorname{log1p}\left(\theta H(t_n)\right)\right] - \frac{1}{\theta}\operatorname{log1p}\left(\theta H(t_n)\right) \right\}
+real churn_frailty_ll(vector log_h, vector H, real theta, data vector d){
+    return sum(churn_frailty_loglik(log_h, H, theta, d));
+}
+
+//@laplace 
+//@brief Churn Fragility Score 
+//@param vector H      : Cumulative Hazard Function 
+//@param real theta    : Fragility Variance
+//@param data vector d : Event Indicator
+//@return vector Per customer, posterior mean of their personal hazard multiplier ωn
+//@math
+// \omega_n \mid t_n, d_n \sim \mathrm{Gamma}\left(1/\theta + d_n,\ 1/\theta + H(t_n)\right) \\
+// \mathbb{E}[\omega_n \mid t_n, d_n] = \frac{1 + \theta d_n}{1 + \theta H(t_n)}
+vector churn_frailty_score(vector H, real theta, data vector d){
+    return (1 + theta *d) ./ (1 + theta * H);
+}
+
+//@laplace 
+//@brief Churn Fragility Survival 
+//@param vector H_u  : Current Baseline Cumulative Hazard Function H(u) for active customers
+//@param vector H_us : Future Window Baseline Cumulative Hazard Function H(u + s) for active customers
+//@param real theta  : Fragility Variance
+//@return vector Churn outlook for an active customers
+//@math
+// S(u_n + s \mid u_n) = \left(\frac{1 + \theta H(u_n)}{1 + \theta H(u_n + s)}\right)^{1/\theta} \\
+// \theta \to 0: \quad S(u_n + s \mid u_n) = e^{-\left[H(u_n + s) - H(u_n)\right]}
+vector churn_frailty_cond_surv(vector H_u, vector H_us, real theta){
+    return pow((1 + theta * H_u) ./ (1 + theta * H_us), 1 / theta);
+}
+
+// Gompertz Functions -----------------------------------------------------------------------------------------------------------------------------------------------------
+//@laplace 
+//@brief Churn Fragility Gompertz Log Pointwise Density Function 
+//@param vector t      : Time since origin t > 0. 
+//@param real gamma    : Change in log hazard per unit of time for this customer.
+//@param vector eta    : Per-customer log hazard at t = 0.
+//@param real theta    : Fragility Variance
+//@param data vector d : Event Indicator 
+//@return real Gompertz Sum of the Fragility Log-Likelihood
+//@math
+// \log h(t_n) = \eta_n + \gamma t_n, \quad H(t_n) = e^{\eta_n}\,\frac{e^{\gamma t_n} - 1}{\gamma} \\
+// \log L = \sum_{n=1}^{N} \left\{ d_n\left[\log h(t_n) - \operatorname{log1p}\left(\theta H(t_n)\right)\right] - \frac{1}{\theta}\operatorname{log1p}\left(\theta H(t_n)\right) \right\}
+real churn_frailty_gompertz_lpdf(vector t, real gamma, vector eta, real theta, data vector d){
+    int N = num_elements(t);
+
+    // Calculate Cumulative Hazard Function and Log Hazard Function 
+    vector[N] H     = survival::srv_gompertz_cumulative_hazard(t, gamma, eta);
+    vector[N] log_h = survival::srv_gompertz_log_hazard(t, gamma, eta);
+
+    // Calculate Churn Sum Fragility Log-Likelihood
+    return churn_frailty_ll(log_h, H, theta, d); 
+}
+
+real churn_frailty_gompertz_lpdf(vector t, vector gamma, vector eta, real theta, data vector d){
+    int N = num_elements(t);
+
+    // Calculate Cumulative Hazard Function and Log Hazard Function 
+    vector[N] H     = survival::srv_gompertz_cumulative_hazard(t, gamma, eta);
+    vector[N] log_h = survival::srv_gompertz_log_hazard(t, gamma, eta);
+
+    // Calculate Churn Sum Fragility Log-Likelihood
+    return churn_frailty_ll(log_h, H, theta, d); 
+}
+
+//@laplace 
+//@brief Churn Fragility Gompertz Random Number Generator
+//@param real gamma    : Change in log hazard per unit of time for this customer.
+//@param vector eta    : Customer log hazard at t = 0.
+//@param real theta    : Fragility Variance
+//@return real Random Churn Fragility for Gompertz fragility likelihood
+//@math
+// \omega \sim \mathrm{Gamma}(1/\theta,\, 1/\theta), \quad \eta' = \eta + \log\omega \\
+// T = \frac{1}{\gamma}\log\left(1 + \gamma E e^{-\eta'}\right),\ E \sim \mathrm{Exponential}(1) \quad (T = \infty \text{ when } 1 + \gamma E e^{-\eta'} \le 0)
+real churn_frailty_gompertz_rng(real gamma, real eta, real theta){
+    real E = exponential_rng(1);
+    real w = gamma_rng(1 / theta, 1 / theta);
+
+    if(1 + gamma * E * exp(-(eta + log(w))) <= 0){
+        return positive_infinity();
+    }else{
+        return (1 / gamma) * log(1 + gamma * E * exp(-eta)); 
+    }
+}
+
+// Makeham Functions ------------------------------------------------------------------------------------------------------------------------------------------------------
+//@laplace
+//@brief Churn Fragility Makeham Log Pointwise Density Function 
+//@param vector t       : Time since origin t > 0.
+//@param real a         : Constant background hazard (a >= 0).
+//@param real gamma     : Change in log hazard per unit of time for this customer.
+//@param real eta       : Log hazard at t = 0 for this customer.
+//@param real theta     : Fragility Variance
+//@param data vector d  : Event Indicator 
+//@return real  : Sum of the Fragility Log-Likelihood from Makeham Fragility Model
+//@math
+// \log h(t_n) = \log\left(a + e^{\eta_n + \gamma t_n}\right), \quad H(t_n) = a\,t_n + e^{\eta_n}\,\frac{e^{\gamma t_n} - 1}{\gamma} \\
+// \log L = \sum_{n=1}^{N} \left\{ d_n\left[\log h(t_n) - \operatorname{log1p}\left(\theta H(t_n)\right)\right] - \frac{1}{\theta}\operatorname{log1p}\left(\theta H(t_n)\right) \right\}
+real churn_frailty_makeham_lpdf(vector t, real a, real gamma, vector eta, real theta, data vector d){
+    int N = num_elements(t);
+
+    // Calculate Makeham Cumulative Hazard and Log Hazard Function 
+    vector[N] H     = survival::srv_makeham_cumulative_hazard(t, a, gamma, eta);
+    vector[N] log_h = survival::srv_makeham_log_hazard(t, a, gamma, eta);
+    
+    // Return sum of the Fragility Log-Likelihood 
+    return churn_frailty_ll(log_h, H, theta, d);
+}
+
+real churn_frailty_makeham_lpdf(vector t, vector a, real gamma, vector eta, real theta, data vector d){
+    int N = num_elements(t);
+    // Calculate Makeham Cumulative Hazard and Log Hazard Function 
+    vector[N] H     = survival::srv_makeham_cumulative_hazard(t, a, gamma, eta);
+    vector[N] log_h = survival::srv_makeham_log_hazard(t, a, gamma, eta);
+    
+    // Return sum of the Fragility Log-Likelihood 
+    return churn_frailty_ll(log_h, H, theta, d);
+}
+
+//@laplace 
+//@brief Makeham Fragility Random Number Generator 
+//@param real a         : Constant background hazard (a >= 0).
+//@param real gamma     : Change in log hazard per unit of time for this customer.
+//@param real eta       : Log hazard at t = 0 for this customer.
+//@return real : Random Number Generated From Makeham Fragility Model
+//@math
+// \omega \sim \mathrm{Gamma}(1/\theta,\, 1/\theta) \\
+// T = \min(T_a, T_G), \quad T_a \sim \mathrm{Exponential}(\omega a), \quad T_G = \frac{1}{\gamma}\log\left(1 + \gamma E e^{-(\eta + \log\omega)}\right),\ E \sim \mathrm{Exponential}(1)
+real churn_frailty_makeham_rng(real a, real gamma, real eta, real theta){
+    // Draw w from Gamma Distribution :
+    real w = gamma_rng(1 / theta, 1 / theta);
+    real Ta = exponential_rng(w * a);
+    real Tg = survival::srv_gompertz_rng(gamma, eta + log(w));
+    // Return min(Ta, Tg)
+    return Ta > Tg ? Tg: Ta;
+}
+
+// Log Logistics Functions ------------------------------------------------------------------------------------------------------------------------------------------------
+//@laplace 
+//@brief Churn Fragility Log-Logistics Log Pointwise Density Function
+//@param vector t       : Time since origin t > 0.
+//@param real alpha     : Scale parameter (alpha > 0).
+//@param real beta      : Shape parameter (beta > 0).
+//@param real theta     : Fragility Variance
+//@param data vector d  : Event Indicator
+//@return real Sum of Fragility Log Likelihood 
+//@math
+// \log h(t_n) = \log\beta - \log\alpha_n + (\beta - 1)\left(\log t_n - \log\alpha_n\right) - \operatorname{log1p}\left((t_n/\alpha_n)^{\beta}\right), \quad H(t_n) = \operatorname{log1p}\left((t_n/\alpha_n)^{\beta}\right) \\
+// \log L = \sum_{n=1}^{N} \left\{ d_n\left[\log h(t_n) - \operatorname{log1p}\left(\theta H(t_n)\right)\right] - \frac{1}{\theta}\operatorname{log1p}\left(\theta H(t_n)\right) \right\}
+real churn_frailty_log_logistics_lpdf(vector t, real alpha, real beta, real theta, data vector d){
+    int N = num_elements(t);
+
+    // Calculate Cumulative Hazard and Log Hazard Function from Log-Logistics Model
+    vector[N] H     = survival::srv_log_logistics_cumulative_hazard(t, alpha, beta);
+    vector[N] log_h = survival::srv_log_logistics_log_hazard(t, alpha, beta);
+
+    // Return Sum of Fragility Log Likelihood
+    return churn_frailty_ll(log_h, H, theta, d);
+}
+real churn_frailty_log_logistics_lpdf(vector t, vector alpha, vector beta, real theta, data vector d){
+    int N = num_elements(t);
+
+    // Calculate Cumulative Hazard and Log Hazard Function from Log-Logistics Model
+    vector[N] H     = survival::srv_log_logistics_cumulative_hazard(t, alpha, beta);
+    vector[N] log_h = survival::srv_log_logistics_log_hazard(t, alpha, beta);
+
+    // Return Sum of Fragility Log Likelihood
+    return churn_frailty_ll(log_h, H, theta, d);
+}
+
+//@laplace
+//@brief Churn Fragility Log Logistics Random Number Generator 
+//@param real alpha     : Scale parameter (alpha > 0).
+//@param real beta      : Shape parameter (beta > 0).
+//@param real theta     : Fragility Variance
+//@return Random Number Generated from Fragility Log Logistics Model
+//@math
+// \omega \sim \mathrm{Gamma}(1/\theta,\, 1/\theta), \quad S(t \mid \omega) = \left(1 + (t/\alpha)^{\beta}\right)^{-\omega} \\
+// T = \alpha\left(U^{-1/\omega} - 1\right)^{1/\beta},\ U \sim \mathrm{Uniform}(0,1)
+real churn_frailty_log_logistics_rng(real alpha, real beta, real theta){
+    real U = uniform_rng(0, 1);
+    real w = gamma_rng(1 / theta, 1 / theta);
+    return alpha * pow((pow(U, -1/ w) - 1), 1 / beta);
+}
+
+// Competing risks: Why customers leave ===================================================================================================================================
+/*
+Model cancellation as the first of several distinct exit routes, each with its own hazard and drivers,
+and report the probability of leaving through each route
+*/
