@@ -403,7 +403,7 @@ real churn_cure_gompertz_lpdf(vector t , vector gamma, vector eta, real psi, dat
 //@brief Churn Cure Gompertz Random Number Generator 
 //@param real gamma     : Change in log hazard per unit of time for this customer.
 //@param real eta       : Log hazard at t = 0 for this customer.
-//@param vector psi : Log-odds of being a never-churner.
+//@param vector psi     : Log-odds of being a never-churner.
 //@return real          : One simulated tenure; positive_infinity() for a never-churner (or a cured Gompertz draw when gamma < 0).
 //@math
 // L \sim \mathrm{Bernoulli}\left(\operatorname{logit}^{-1}(\psi)\right) \\
@@ -766,6 +766,9 @@ and report the probability of leaving through each route
 //@param matrix[n, c] H               : Matrix of Cumulative Hazard Functions 
 //@param data array[] int cause       : Cause that ended the subscription; 0 = active. 
 //@return vector Churn Competing Log Likelihood 
+//@math
+// S(t) = \exp\left(-\sum_{c=1}^{C} H_c(t)\right) \\
+// \ell_n = \mathbb{1}\{c_n > 0\}\,\log h_{c_n}(t_n) - \sum_{c=1}^{C} H_c(t_n)
 vector churn_competing_loglik(matrix log_h, matrix H, data array[] int cause){
     int N = num_elements(cause);
     vector[N] ll;
@@ -785,6 +788,8 @@ vector churn_competing_loglik(matrix log_h, matrix H, data array[] int cause){
 //@param matrix[n, c] H               : Matrix of Cumulative Hazard Functions 
 //@param data array[] int cause       : Cause that ended the subscription; 0 = active. 
 //@return real Sum Competing Log Likelihood 
+//@math
+// \log L = \sum_{n=1}^{N} \left\{ \mathbb{1}\{c_n > 0\}\,\log h_{c_n}(t_n) - \sum_{c=1}^{C} H_c(t_n) \right\}
 real churn_competing_ll(matrix log_h, matrix H, data array[] int cause){
     return sum(churn_competing_loglik(log_h, H, cause));
 }
@@ -795,6 +800,10 @@ real churn_competing_ll(matrix log_h, matrix H, data array[] int cause){
 //@param matrix[i, c] dH_q    : Matrix of Delta Cumulative Hazard Functions as H_c(u + x_i) - H_c(u)
 //@param data vector wd       : Quadrature weights
 //@return a vector of Cumulative Incidence
+//@math
+// F_c(s \mid u) = \int_0^{s} h_c(u + v)\,\exp\left(-\sum_{j=1}^{C}\left[H_j(u + v) - H_j(u)\right]\right) dv \\
+// F_c(s \mid u) \approx \sum_{i} w_i \exp\left(\log h_c(u + x_i) - \sum_{j=1}^{C}\left[H_j(u + x_i) - H_j(u)\right]\right) \\
+// \sum_{c=1}^{C} F_c(s \mid u) + S(u + s \mid u) = 1
 vector churn_competing_cif(matrix log_h_q, matrix dH_q, data vector wq){
     int N = rows(log_h_q);
     int C = cols(log_h_q);
@@ -820,11 +829,14 @@ vector churn_competing_cif(matrix log_h_q, matrix dH_q, data vector wq){
 // Competing Risk Gompertz ------------------------------------------------------------------------------------------------------------------------------
 //@laplace
 //@brief Churn Competing Risks Gompertz Log Pointwise Density Function 
-//@param vector t       : Time since origin t > 0.
-//@param matrix[n, c] gamma    : Change in log hazard per unit and cause  .
+//@param vector t              : Time since origin t > 0.
+//@param vector gamma          : Change in log hazard per unit and cause  .
 //@param matrix[n, c] eta      : Per-customer and cause log hazard at t = 0.
 //@param data array int cause  : Cause that ended the subscription; 0 = active
 //@return real Compering Risk Gompertz Sum Competing Log-Likelihood 
+//@math
+// \log h_c(t_n) = \eta_{nc} + \gamma_c t_n, \quad H_c(t_n) = e^{\eta_{nc}}\,\frac{e^{\gamma_c t_n} - 1}{\gamma_c} \\
+// \log L = \sum_{n=1}^{N} \left\{ \mathbb{1}\{c_n > 0\}\,\log h_{c_n}(t_n) - \sum_{c=1}^{C} H_c(t_n) \right\}
 real churn_competing_gompertz_lpdf(vector t, vector gamma, matrix eta, data array[] int cause){
     int N = rows(eta);
     int C = cols(eta);
@@ -866,7 +878,10 @@ real churn_competing_gompertz_lpdf(vector t, matrix gamma, matrix eta, data arra
 //@brief Churn Competing Gompertz Random Number Generation
 //@param vector gamma  : Change in log hazard per unit of time for this customer.
 //@param vector eta    : Log hazard at t = 0.
-//@return real 
+//@return vector Simulator draws one latent time per cause
+//@math
+// T_c = \frac{1}{\gamma_c}\log\left(1 + \gamma_c E_c e^{-\eta_c}\right),\ E_c \sim \mathrm{Exponential}(1) \quad (T_c = \infty \text{ when } 1 + \gamma_c E_c e^{-\eta_c} \le 0) \\
+// T = \min_c T_c, \quad \text{cause} = \arg\min_c T_c \quad (\text{returns } (\infty, 0) \text{ if all } T_c = \infty)
 vector churn_competing_gompertz_rng(vector gamma, vector eta){
     int C = num_elements(gamma);
     vector[C] Ec;
@@ -884,3 +899,141 @@ vector churn_competing_gompertz_rng(vector gamma, vector eta){
     }
     return Tc;
 }
+
+//@laplace
+//@brief Churn Competing Gompertz Cumulative Incidence Function (CIF)
+//@param real u         : Current tenure (u >= 0).
+//@param vector gamma   : Change in log hazard per unit of time for this customer.
+//@param vector eta     : Log hazard at t = 0.
+//@param data vector xq : Quadrature nodes
+//@param data vector wd : Quadrature weights
+//@return vector Competing Gompertz Cumulative Incidence Function (CIF)
+//@math
+// \eta'_c = \eta_c + \gamma_c u \quad \text{(shift identity)} \\
+// F_c(s \mid u) \approx \sum_{i} w_i \exp\left(\eta'_c + \gamma_c x_i - \sum_{j=1}^{C} e^{\eta'_j}\,\frac{e^{\gamma_j x_i} - 1}{\gamma_j}\right)
+vector churn_competing_gompertz_cif(real u, vector gamma, vector eta, data vector xq, data vector wq){
+    int C = num_elements(eta);
+    int N = num_elements(wq);
+
+    vector[C] eta_der = eta + gamma * u;
+    matrix[N, C] H;
+    matrix[N, C] log_h_q;
+    matrix[N, C] dH_q;
+
+    // Calculate the Competing Cumulative Hazard and Log Hazard Function from Gompertz 
+    for(n in 1:N){
+        for(c in 1:C){
+            H[n, c]        = survival::srv_gompertz_cumulative_hazard(xq[n], gamma[c], eta_der[c]);
+            log_h_q[n, c]  = survival::srv_gompertz_log_hazard(xq[n], gamma[c], eta_der[c]); 
+            dH_q[n, c]     = log_h_q[n, c] - H[n, c];
+        }
+    }
+    // Return Cumulative Incidence Function (CIF)
+    return churn_competing_cif(log_h_q, dH_q, wq);
+}
+
+// Competing Risk Makeham ------------------------------------------------------------------------------------------------------------------------------
+//@laplace
+//@brief Churn Competing Makeham Log Pointwise Density Function 
+//@param vector t          : Time since origin t > 0.
+//@param vector a          : Constant background hazard (a >= 0).
+//@param vector gamma      : Change in log hazard.
+//@param matrix[n, c] eta  : Log hazard at t = 0.
+//@param data array int cause  : Cause that ended the subscription; 0 = active
+//@return real Competing Makeham Log Pointwise Density Function  
+//@math
+// \log h_c(t_n) = \log\left(a_c + e^{\eta_{nc} + \gamma_c t_n}\right), \quad H_c(t_n) = a_c t_n + e^{\eta_{nc}}\,\frac{e^{\gamma_c t_n} - 1}{\gamma_c} \\
+// \log L = \sum_{n=1}^{N} \left\{ \mathbb{1}\{c_n > 0\}\,\log h_{c_n}(t_n) - \sum_{c=1}^{C} H_c(t_n) \right\}
+real churn_competing_makeham_lpdf(vector t, vector a, vector gamma, matrix eta, data array[] int cause){
+    int N = rows(eta);
+    int C = cols(eta);
+
+    matrix[N, C] H;
+    matrix[N, C] log_Hc;
+    // Calculate the Competing Cumulative Hazard and Log Hazard Function from Makeham 
+    for(n in 1:N){
+        for(c in 1:C){
+            H[n, c]      = survival::srv_makeham_cumulative_hazard(t[n], a[c], gamma[c], eta[n,c]);
+            log_Hc[n, c] = survival::srv_makeham_log_hazard(t[n], a[c], gamma[c], eta[n,c]); 
+        }
+    }
+    // Return Competing Makeham lpdf
+    return churn_competing_ll(log_Hc, H, cause);
+}
+real churn_competing_makeham_lpdf(vector t, matrix a, vector gamma, matrix eta, data array[] int cause){
+    int N = rows(eta);
+    int C = cols(eta);
+
+    matrix[N, C] H;
+    matrix[N, C] log_Hc;
+    // Calculate the Competing Cumulative Hazard and Log Hazard Function from Makeham 
+    for(n in 1:N){
+        for(c in 1:C){
+            H[n, c]      = survival::srv_makeham_cumulative_hazard(t[n], a[n, c], gamma[c], eta[n,c]);
+            log_Hc[n, c] = survival::srv_makeham_log_hazard(t[n], a[n ,c], gamma[c], eta[n,c]); 
+        }
+    }
+    // Return Competing Makeham lpdf
+    return churn_competing_ll(log_Hc, H, cause);
+}
+
+//@laplace 
+//@brief Churn Competing Makeham Random Number Generator 
+//@param vector a          : Constant background hazard (a >= 0).
+//@param vector gamma      : Change in log hazard.
+//@param vector eta        : Log hazard at t = 0.
+//@return vector Churn Random Number from Makeham 
+//@math
+// T_{a,c} \sim \mathrm{Exponential}(a_c), \quad T_{G,c} = \frac{1}{\gamma_c}\log\left(1 + \gamma_c E_c e^{-\eta_c}\right),\ E_c \sim \mathrm{Exponential}(1) \\
+// T_c = \min(T_{a,c}, T_{G,c}), \quad T = \min_c T_c, \quad \text{cause} = \arg\min_c T_c
+vector churn_competing_makeham_rng(vector a, vector gamma, vector eta){
+    int N = num_elements(a);
+    int C = num_elements(eta);
+
+    matrix[N, C] Tca;
+    matrix[N, C] Tg;
+    vector[C] Tc;
+
+    for(n in 1:N){
+        for(c in 1:C){
+            Tca[n, c] = exponential_rng(a[c]);
+            Tg[n, c]  = survival::srv_gompertz_rng(gamma[c], eta[c]);
+            Tc[c]     = Tca[n, c] > Tg[n, c] ? Tg[n, c] : Tca[n, c]; 
+        }
+    }
+    return Tc;
+}
+
+//@laplace
+//@brief Churn Competing Makeham Cumulative Incidence Function (CIF)
+//@param real u         : Current tenure (u >= 0).
+//@param vector a       : Constant background hazard (a >= 0).
+//@param vector gamma   : Change in log hazard per unit of time for this customer.
+//@param vector eta     : Log hazard at t = 0.
+//@param data vector xq : Quadrature nodes
+//@param data vector wd : Quadrature weights
+//@return vector Competing Makeham Cumulative Incidence Function (CIF)
+//@math
+// \eta'_c = \eta_c + \gamma_c u \\
+// F_c(s \mid u) \approx \sum_{i} w_i \left(a_c + e^{\eta'_c + \gamma_c x_i}\right) \exp\left(-\sum_{j=1}^{C}\left[a_j x_i + e^{\eta'_j}\,\frac{e^{\gamma_j x_i} - 1}{\gamma_j}\right]\right)
+vector churn_competing_makeham_cif(real u, vector a, vector gamma, vector eta, data vector xq, data vector wq){
+    int C = num_elements(a);
+    int N = num_elements(wq);
+
+    vector[C] eta_der = eta + gamma * u;
+    matrix[N, C] H;
+    matrix[N, C] log_h_q;
+    matrix[N, C] dH_q;
+
+    // Calculate the Competing Cumulative Hazard and Log Hazard Function from Makeham 
+    for(n in 1:N){
+        for(c in 1:C){
+            H[n, c]        = survival::srv_makeham_cumulative_hazard(xq[n], a[c], gamma[c], eta_der[c]);
+            log_h_q[n, c]  = survival::srv_makeham_log_hazard(xq[n], a[c], gamma[c], eta_der[c]); 
+            dH_q[n, c]     = log_h_q[n, c] - H[n, c];
+        }
+    }
+    // Return Cumulative Incidence Function (CIF)
+    return churn_competing_cif(log_h_q, dH_q, wq);
+}
+
