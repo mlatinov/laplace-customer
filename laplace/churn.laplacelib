@@ -1,6 +1,7 @@
 // Libraries 
 library{
     import survival
+    import cluster
 }
 
 // Conditional survival and churn probability for active customers =====================================================================
@@ -1037,3 +1038,170 @@ vector churn_competing_makeham_cif(real u, vector a, vector gamma, vector eta, d
     return churn_competing_cif(log_h_q, dH_q, wq);
 }
 
+// Latent churn segments (via cluster) =======================================================================================================================================================
+/*
+Build the N × K matrix of per-segment survival log likelihoods so that cluster’s mixture
+machinery can fit K unobserved customer types with different churn curves
+*/
+
+// Generic core ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+//@laplace
+//@brief Build matrix of per-segment log likelihoods.
+//@param matrix[n, k] log_h : Log Hazard Function for k cluster
+//@param matrix H[, k] H    : Cumulative Hazard Function for k cluster
+//@param data vector d      : Event Indicator 
+//@return matrix L of per-segment log likelihood
+//@math
+// L_{nk} = d_n \log h_k(t_n) - H_k(t_n) \\
+// \log L = \sum_{n=1}^{N} \log\sum_{k=1}^{K} \exp\left(\log\theta_{nk} + L_{nk}\right) \quad \text{(via cluster::mixture\_lpdf)}
+matrix churn_segment_L(matrix log_h, matrix H, data vector d){
+    int N = rows(log_h);
+    int K = cols(log_h);
+
+    matrix[N, K] L;
+
+    for(n in 1:N){
+        for(k in 1:K){
+            L[n, k] = d[n] * log_h[n,k] - H[n, k];
+        }
+    }
+    return L;
+}
+
+// Gompertz Family -----------------------------------------------------------------------------------------------------------------------------
+//@laplace 
+//@brief Churn Segment Gompertz L Builder
+//@param vector t     : Time since origin t > 0.
+//@param vector gamma : Change in log hazard.
+//@param vector eta[n, k]   : Log hazard at t = 0 per cluster k
+//@return matrix Segment Gompertz L to be used with cluster library 
+//@math
+// \log h_k(t_n) = \eta_{nk} + \gamma_k t_n, \quad H_k(t_n) = e^{\eta_{nk}}\,\frac{e^{\gamma_k t_n} - 1}{\gamma_k} \\
+// L_{nk} = d_n\left(\eta_{nk} + \gamma_k t_n\right) - e^{\eta_{nk}}\,\frac{e^{\gamma_k t_n} - 1}{\gamma_k}
+matrix churn_segment_gompertz_L(vector t, data vector d, vector gamma, matrix eta){
+    int N = rows(eta);
+    int K = cols(eta);
+
+    matrix[N, K] log_h;
+    matrix[N, K] H;
+
+    for(n in 1:N){
+        for(k in 1:K){
+            log_h[n, k] = survival::srv_gompertz_log_hazard(t[n], gamma[k], eta[n, k]);
+            H[n, k]     = survival::srv_gompertz_cumulative_hazard(t[n], gamma[k], eta[n, k]);
+        }
+    }
+    return churn_segment_L(log_h, H, d);
+}
+matrix churn_segment_gompertz_L(vector t, data vector d, matrix gamma, matrix eta){
+    int N = rows(eta);
+    int K = cols(eta);
+
+    matrix[N, K] log_h;
+    matrix[N, K] H;
+
+    for(n in 1:N){
+        for(k in 1:K){
+            log_h[n, k] = survival::srv_gompertz_log_hazard(t[n], gamma[n ,k], eta[n, k]);
+            H[n, k]     = survival::srv_gompertz_cumulative_hazard(t[n], gamma[n, k], eta[n, k]);
+        }
+    }
+    return churn_segment_L(log_h, H, d);
+}
+
+// Makeham Family --------------------------------------------------------------------------------------------------------------------------------------
+//@laplace 
+//@brief Churn Segment Makeham L Builder
+//@param vector t          : Time since origin t > 0.
+//@param vector a          : Constant background hazard (a >= 0).
+//@param vector gamma      : Change in log hazard per unit of time.
+//@param matrix eta[n, k]  : Log hazard at t = 0 per cluster k.
+//@return matrix Segment Makeham L, to be used with cluster library
+//@math
+// \log h_k(t_n) = \log\left(a_k + e^{\eta_{nk} + \gamma_k t_n}\right), \quad H_k(t_n) = a_k t_n + e^{\eta_{nk}}\,\frac{e^{\gamma_k t_n} - 1}{\gamma_k} \\
+// L_{nk} = d_n \log h_k(t_n) - H_k(t_n)
+matrix churn_segment_makeham_L(vector t, data vector d, vector a, vector gamma, matrix eta){
+    int N = rows(eta);
+    int K = cols(eta);
+
+    matrix[N, K] log_h;
+    matrix[N, K] H;
+
+    for(n in 1:N){
+        for(k in 1:K){
+            H[n, k]     = survival::srv_makeham_cumulative_hazard(t[n], a[k], gamma[k], eta[n, k]);
+            log_h[n, k] = survival::srv_makeham_log_hazard(t[n], a[k], gamma[k], eta[n, k]); 
+        }
+    }
+    return churn_segment_L(log_h, H, d);
+}
+matrix churn_segment_makeham_L(vector t, data vector d, matrix a, vector gamma, matrix eta){
+    int N = rows(eta);
+    int K = cols(eta);
+
+    matrix[N, K] log_h;
+    matrix[N, K] H;
+
+    for(n in 1:N){
+        for(k in 1:K){
+            H[n, k]     = survival::srv_makeham_cumulative_hazard(t[n], a[n, k], gamma[k], eta[n, k]);
+            log_h[n, k] = survival::srv_makeham_log_hazard(t[n], a[n, k], gamma[k], eta[n, k]); 
+        }
+    }
+    return churn_segment_L(log_h, H, d);
+}
+matrix churn_segment_makeham_L(vector t, data vector d, vector a, matrix gamma, matrix eta){
+    int N = rows(eta);
+    int K = cols(eta);
+
+    matrix[N, K] log_h;
+    matrix[N, K] H;
+
+    for(n in 1:N){
+        for(k in 1:K){
+            H[n, k]     = survival::srv_makeham_cumulative_hazard(t[n], a[k], gamma[n, k], eta[n, k]);
+            log_h[n, k] = survival::srv_makeham_log_hazard(t[n], a[k], gamma[n, k], eta[n, k]); 
+        }
+    }
+    return churn_segment_L(log_h, H, d);
+}
+matrix churn_segment_makeham_L(vector t, data vector d, matrix a, matrix gamma, matrix eta){
+    int N = rows(eta);
+    int K = cols(eta);
+
+    matrix[N, K] log_h;
+    matrix[N, K] H;
+
+    for(n in 1:N){
+        for(k in 1:K){
+            H[n, k]     = survival::srv_makeham_cumulative_hazard(t[n], a[n, k], gamma[n, k], eta[n, k]);
+            log_h[n, k] = survival::srv_makeham_log_hazard(t[n], a[n, k], gamma[n, k], eta[n, k]); 
+        }
+    }
+    return churn_segment_L(log_h, H, d);
+}
+
+// Derived quantities -----------------------------------------------------------------------------------------------------------------------
+//@laplace 
+//@brief Churn Segment Conditional survival
+//@param matrix R  : Pr(segment | k  tn, dn) or is the responsibility; each row sums to 1
+//@param matrix dH : Delta Cumulative Hazard Function H(un + s) - H(un)
+//@return vector Probability that an active customer is still subscribed after $s$ more time units.
+//@math
+// \text{Existing customers: } S_n(u_n + s \mid u_n, \text{data}) = \sum_{k=1}^{K} r_{nk}\,\exp\left(-\left[H_k(u_n + s) - H_k(u_n)\right]\right) \\
+// r_{nk} = \exp\left(\log\theta_{nk} + L_{nk} - \log\sum_{j=1}^{K}\exp\left(\log\theta_{nj} + L_{nj}\right)\right) \\
+// \text{Population / new customer: } S(u + s \mid u) = \frac{\sum_{k} \theta_k\, e^{-H_k(u + s)}}{\sum_{k} \theta_k\, e^{-H_k(u)}}
+vector churn_segment_cond_surv(matrix R, matrix dH){
+    int N = rows(R);
+    int K = cols(R);
+
+    vector[N] sn;
+
+    for(n in 1:N){
+        sn[n] = 0;
+        for(k in 1:K){
+            sn += R[n, k] * exp(-dH[n, k]);
+        }
+    }
+    return sn;
+}
