@@ -1,0 +1,168 @@
+/*
+CVL (non-contractual purchases and value)
+
+In a non-contractual business customers never announce that they have left; they just stop buying.
+The models here separate “gone” from “slow” by assuming two hidden processes per customer:
+
+1. Buying while alive: purchases arrive as a Poisson process with rate λn (on average λn purchases per time
+unit, at random moments);
+
+2. Dying: the customer becomes permanently inactive at an unobserved moment — after each purchase with
+probability pn (BG/NBD), after an exponential lifetime with rate µn (Pareto/NBD), or after a lifetime
+with any survival hazard
+
+Customers differ: λ ∼ Gamma(r, α), p ∼ Beta( a, b), µ ∼ Gamma(s, β). For these models the likelihood
+depends on a customer’s purchase history only through frequency x, recency t x and age T (Layout B). The
+long silence between t x and T is the evidence about death: the longer it is relative to how often the customer
+used to buy, the more likely they are gone.
+*/
+
+// V.1 BG/NBD likelihood =======================================================================================================================
+//@laplace
+//@brief Beta-Geometric / Negative Binomial Log Likelihood
+//@param array[] int x[n] : The number of repeat purchases (first purchase excluded).
+//@param vector t_x[n]    : Recency: Time of the last repeat purchase, measured from the first purchase.
+//@param vector T[n]      : Time from the first purchase to the end of the data.
+//@param real r, alpha    : Purchase rates while alive follow lambda ~ Gamma(r, alpha), with mean rate r / alpha.
+//@param real a, b        : Dropout probabilities after each purchase follow pn ~ Beta(a, b), with mean a / (a + b).
+//@math
+// \lambda_n \sim \mathrm{Gamma}(r, \alpha), \quad p_n \sim \mathrm{Beta}(a, b) \\
+// A_{0,n} = \log\Gamma(r + x_n) - \log\Gamma(r) + r\log\alpha - \log B(a, b) \\
+// A_{1,n} = \log B(a,\, b + x_n) - (r + x_n)\log(\alpha + T_n) \\
+// A_{2,n} = \log B(a + 1,\, b + x_n - 1) - (r + x_n)\log(\alpha + t_{x,n}) \\
+// \ell_n = A_{0,n} + A_{1,n} \ \text{if } x_n = 0, \qquad \ell_n = A_{0,n} + \log\left(e^{A_{1,n}} + e^{A_{2,n}}\right) \ \text{if } x_n > 0
+vector bgnbd_loglik(array[] int x, data vector t_x, data vector T, real r, real alpha, real a, real b){
+    int N = num_elements(x);
+    
+    matrix[3, N] A;
+    vector[N] ln;
+
+    for(n in 1:N){
+        A[1, n] = lgamma(r + x[n]) - lgamma(r) + r * log(alpha) - lbeta(a, b);
+        A[2, n] = lbeta(a, b + x[n]) - (r + x[n])  * log(alpha + T[n]);
+
+        // Build the Log Likelihood from a peace function 
+        if(x[n] == 0){
+            ln[n] = A[1, n] + A[2, n];
+        
+        }else{
+            A[3, n] = lbeta(a + 1, b + x[n] - 1) - (r + x[n]) * log(alpha + t_x[n]); 
+            ln[n] = A[1, n] + log(exp(A[2, n]) + exp(A[3, n]));
+        }
+    }
+    return ln;
+}
+vector bgnbd_loglik(array[] int x, data vector t_x, data vector T, real r, vector alpha, real a, real b){
+    int N = num_elements(x);
+    
+    matrix[3, N] A;
+    vector[N] ln;
+
+    for(n in 1:N){
+        A[1, n] = lgamma(r + x[n]) - lgamma(r) + r * log(alpha[n]) - lbeta(a, b);
+        A[2, n] = lbeta(a, b + x[n]) - (r + x[n])  * log(alpha[n] + T[n]);
+
+        // Build the Log Likelihood from a peace function 
+        if(x[n] == 0){
+            ln[n] = A[1, n] + A[2, n];
+        
+        }else{
+            A[3, n] = lbeta(a + 1, b + x[n] - 1) - (r + x[n]) * log(alpha[n] + t_x[n]); 
+            ln[n] = A[1, n] + log(exp(A[2, n]) + exp(A[3, n]));
+        }
+    }
+    return ln;
+}
+vector bgnbd_loglik(array[] int x, data vector t_x, data vector T, real r, real alpha, vector a, vector b){
+    int N = num_elements(x);
+    
+    matrix[3, N] A;
+    vector[N] ln;
+
+    for(n in 1:N){
+        A[1, n] = lgamma(r + x[n]) - lgamma(r) + r * log(alpha) - lbeta(a[n], b[n]);
+        A[2, n] = lbeta(a[n], b[n] + x[n]) - (r + x[n])  * log(alpha + T[n]);
+
+        // Build the Log Likelihood from a peace function 
+        if(x[n] == 0){
+            ln[n] = A[1, n] + A[2, n];
+        
+        }else{
+            A[3, n] = lbeta(a[n] + 1, b[n] + x[n] - 1) - (r + x[n]) * log(alpha + t_x[n]); 
+            ln[n] = A[1, n] + log(exp(A[2, n]) + exp(A[3, n]));
+        }
+    }
+    return ln;
+}
+vector bgnbd_loglik(array[] int x, data vector t_x, data vector T, real r, vector alpha, vector a, vector b){
+    int N = num_elements(x);
+    
+    matrix[3, N] A;
+    vector[N] ln;
+
+    for(n in 1:N){
+        A[1, n] = lgamma(r + x[n]) - lgamma(r) + r * log(alpha[n]) - lbeta(a[n], b[n]);
+        A[2, n] = lbeta(a[n], b[n] + x[n]) - (r + x[n])  * log(alpha[n] + T[n]);
+
+        // Build the Log Likelihood from a peace function 
+        if(x[n] == 0){
+            ln[n] = A[1, n] + A[2, n];
+        
+        }else{
+            A[3, n] = lbeta(a[n] + 1, b[n] + x[n] - 1) - (r + x[n]) * log(alpha[n] + t_x[n]); 
+            ln[n] = A[1, n] + log(exp(A[2, n]) + exp(A[3, n]));
+        }
+    }
+    return ln;
+}
+
+//@laplace 
+//@brief Beta-Geometric / Negative Binomial Log Probability Mass Function 
+//@param array[] int x[n] : The number of repeat purchases (first purchase excluded).
+//@param vector t_x[n]    : Recency: Time of the last repeat purchase, measured from the first purchase.
+//@param vector T[n]      : Time from the first purchase to the end of the data.
+//@param real r, alpha    : Purchase rates while alive follow lambda ~ Gamma(r, alpha), with mean rate r / alpha.
+//@param real a, b        : Dropout probabilities after each purchase follow pn ~ Beta(a, b), with mean a / (a + b).
+//@math
+// L_n = \frac{B(a, b + x_n)}{B(a, b)}\,\frac{\Gamma(r + x_n)\,\alpha^r}{\Gamma(r)\,(\alpha + T_n)^{r + x_n}} + \mathbb{1}\{x_n > 0\}\,\frac{B(a + 1, b + x_n - 1)}{B(a, b)}\,\frac{\Gamma(r + x_n)\,\alpha^r}{\Gamma(r)\,(\alpha + t_{x,n})^{r + x_n}} \\
+// \log L = \sum_{n=1}^{N} \log L_n
+real bgnbd_lpmf(array[] int x, data vector t_x, data vector T, real r, real alpha, real a, real b){
+    return sum(bgnbd_loglik(x, t_x, T, r, alpha, a, b));
+}
+real bgnbd_lpmf(array[] int x, data vector t_x, data vector T, real r, vector alpha, real a, real b){
+    return sum(bgnbd_loglik(x, t_x, T, r, alpha, a, b));
+}
+real bgnbd_lpmf(array[] int x, data vector t_x, data vector T, real r, real alpha, vector a, vector b){
+    return sum(bgnbd_loglik(x, t_x, T, r, alpha, a, b));
+}
+real bgnbd_lpmf(array[] int x, data vector t_x, data vector T, real r, vector alpha, vector a, vector b){
+    return sum(bgnbd_loglik(x, t_x, T, r, alpha, a, b));
+}
+
+//@laplace
+//@brief Beta-Geometric / Negative Binomial Weighted Log Probability Mass Function 
+//@param array[] int x[n] : The number of repeat purchases (first purchase excluded).
+//@param vector t_x[n]    : Recency: Time of the last repeat purchase, measured from the first purchase.
+//@param vector T[n]      : Time from the first purchase to the end of the data.
+//@param real r, alpha    : Purchase rates while alive follow lambda ~ Gamma(r, alpha), with mean rate r / alpha.
+//@param real a, b        : Dropout probabilities after each purchase follow pn ~ Beta(a, b), with mean a / (a + b).
+//@param vector w         : Rows u are the unique (x, t_x, T) combinations and w_u is how many customers share each one.
+//@math
+// \ell_u = \log L_u \ \text{for each unique } (x_u, t_{x,u}, T_u) \\
+// \log L = \sum_{u=1}^{U} w_u\,\ell_u, \quad w_u = \text{number of customers with that history}
+real bgnbd_weighted_lpmf(array[] int x, data vector t_x, data vector T, data vector w, real r, real alpha, real a, real b){
+    return sum(bgnbd_loglik(x, t_x, T, r, alpha, a, b) .* w);
+}
+real bgnbd_weighted_lpmf(array[] int x, data vector t_x, data vector T, data vector w, real r, vector alpha, real a, real b){
+    return sum(bgnbd_loglik(x, t_x, T, r, alpha, a, b) .* w);
+}
+real bgnbd_weighted_lpmf(array[] int x, data vector t_x, data vector T, data vector w, real r, real alpha, vector a, vector b){
+    return sum(bgnbd_loglik(x, t_x, T, r, alpha, a, b) .* w);
+}
+real bgnbd_weighted_lpmf(array[] int x, data vector t_x, data vector T, data vector w, real r, vector alpha, vector a, vector b){
+    return sum(bgnbd_loglik(x, t_x, T, r, alpha, a, b) .* w);
+}
+
+// V.2 Probability a customer is alive ------------------------------------------------------------------------------------------------------------
+// V.3 Expected purchases of a new customer -------------------------------------------------------------------------------------------------------
+// V.4 Expected future purchases of an existing customer ------------------------------------------------------------------------------------------
