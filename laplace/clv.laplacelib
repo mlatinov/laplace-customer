@@ -378,3 +378,135 @@ matrix bgnbd_expected_cond(vector t, array[] int x, vector t_x, vector T, real r
         E[, k] = cst_bgnbd_expected_cond(t[k], x, T, r, alpha, a, b, lp);
     return E;
 }
+
+// V5 Simulators -------------------------------------------------------------------------------------------------------------------------------------
+//@laplace
+//@brief Beta-Geometric / Negative Binomial Individual Random Number Generator
+//@param real T         : Observation length (age), in the model's time unit.
+//@param real lambda, p : One customer's purchase rate while alive and their dropout probability after each repeat purchase.
+//@math
+// \tau_0 = 0, \quad \tau_j = \tau_{j-1} + E_j, \quad E_j \sim \mathrm{Exponential}(\lambda) \\
+// \text{for } j = 1, 2, \dots: \ \text{if } \tau_j > T \text{ stop; else } x = j,\ t_x = \tau_j, \text{ then stop with probability } p \\
+// \text{returns } (x, t_x), \quad 0 \le t_x \le T, \quad t_x = 0 \iff x = 0
+vector bgnbd_indiv_rng(real T, real lambda, real p){
+    // Initialize variables 
+    real tau = 0;
+    real j   = 0;
+    real tx  = 0;
+    real x   = 0;
+
+    while(1){
+        real E = exponential_rng(lambda);
+        tau   += E;
+        
+        if(tau > T){
+            break;
+        }
+        x  = j;
+        tx = tau;
+
+        if (bernoulli_rng(p) == 1)
+            break;
+    }
+    return to_vector([x, tx]);
+}
+matrix bgnbd_rng(vector lambda, vector p, vector T){
+    int N = num_elements(lambda);
+    matrix[N, 2] result;
+
+    for (n in 1:N) {
+        real tau = 0;
+        real x = 0;
+        real tx = 0;
+
+        while (1) {
+            real E = exponential_rng(lambda[n]);
+            tau += E;
+
+            if (tau > T[n])
+                break;
+
+            x += 1;
+            tx = tau;
+
+            if (bernoulli_rng(p[n]) == 1)
+                break;
+        }
+        result[n, 1] = x;
+        result[n, 2] = tx;
+    }
+    return result;
+}
+
+//@laplace
+//@brief Beta-Geometric / Negative Binomial Population Random Number Generator
+//@param T         : Observation length (age), in the model's time unit.
+//@param r, alpha, a, b : Population parameters, with lambda ~ Gamma(r, alpha) [rate alpha] p ~ Beta(a, b).
+//@return vector[2] (x, t_x) for one randomly drawn customer.
+//@math
+// \lambda \sim \mathrm{Gamma}(r, \alpha), \quad p \sim \mathrm{Beta}(a, b) \\
+// (x, t_x) = \texttt{bgnbd\_indiv\_rng}(T, \lambda, p) \\
+// \text{vector } T: \ \text{row } n = (x_n, t_{x,n}) \text{ simulated at age } T_n
+vector bgnbd_rng(real T, real r, real alpha, real a, real b) {
+    real lambda = gamma_rng(r, alpha);
+    real p      = beta_rng(a, b);
+
+    return bgnbd_indiv_rng(T, lambda, p);
+}
+matrix bgnbd_rng(vector T, real r, real alpha, real a, real b) {
+    int N = num_elements(T);
+    matrix[N, 2] L;
+
+    for (n in 1:N) {
+        real lambda = gamma_rng(r, alpha);
+        real p      = beta_rng(a, b);
+        vector[2] z = bgnbd_indiv_rng(T[n], lambda, p);
+
+        L[n, 1] = z[1];
+        L[n, 2] = z[2];
+    }
+
+    return L;
+}
+matrix bgnbd_rng(vector T, real r, vector alpha, real a, real b) {
+    int N = num_elements(T);
+    matrix[N, 2] L;
+
+    for (n in 1:N) {
+        real lambda = gamma_rng(r, alpha[n]);
+        real p      = beta_rng(a, b);
+
+        vector[2] z = bgnbd_indiv_rng(T[n], lambda, p);
+        L[n, 1] = z[1];
+        L[n, 2] = z[2];
+    }
+    return L;
+}
+matrix bgnbd_rng(vector T, real r, real alpha, vector a, vector b) {
+    int N = num_elements(T);
+    matrix[N, 2] L;
+
+    for (n in 1:N) {
+        real lambda = gamma_rng(r, alpha);
+        real p      = beta_rng(a[n], b[n]);
+
+        vector[2] z = bgnbd_indiv_rng(T[n], lambda, p);
+        L[n, 1] = z[1];
+        L[n, 2] = z[2];
+    }
+    return L;
+}
+matrix bgnbd_rng(vector T, real r, vector alpha, vector a, vector b){
+    int N = num_elements(T);
+    matrix[N, 2] L;
+
+    for (n in 1:N) {
+        real lambda = gamma_rng(r, alpha[n]);
+        real p      = beta_rng(a[n], b[n]);
+
+        vector[2] z = bgnbd_indiv_rng(T[n], lambda, p);
+        L[n, 1] = z[1];
+        L[n, 2] = z[2];
+    }
+    return L;
+}
