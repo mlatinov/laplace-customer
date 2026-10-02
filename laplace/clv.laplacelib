@@ -164,5 +164,217 @@ real bgnbd_weighted_lpmf(array[] int x, data vector t_x, data vector T, data vec
 }
 
 // V.2 Probability a customer is alive ------------------------------------------------------------------------------------------------------------
+// For each customer, the probability that they are still active at the end of the observation window
+//@laplace 
+//@brief Beta-Geometric / Negative Binomial: Probability a customer is alive
+//@param array[] int x    : Repeat purchases
+//@param vector t_x       : Recency: Time of the last repeat purchase, measured from the first purchase.
+//@param vector T         : Time from the first purchase to the end of the data.
+//@param real r, alpha    : Purchase rates while alive follow lambda ~ Gamma(r, alpha), with mean rate r / alpha.
+//@param real a, b        : Dropout probabilities after each purchase follow pn ~ Beta(a, b), with mean a / (a + b).
+//@return vector Returns the log probability that each customer is still active at T_n 
+//@math
+// \kappa_n = \log a - \log(b + x_n - 1) + (r + x_n)\left[\log(\alpha + T_n) - \log(\alpha + t_{x,n})\right] \\
+// \log P_n(\text{alive}) = 0 \ \text{if } x_n = 0, \qquad \log P_n(\text{alive}) = -\log\left(1 + e^{\kappa_n}\right) \ \text{if } x_n > 0 \\
+// P_n(\text{alive}) = \frac{1}{1 + \mathbb{1}\{x_n > 0\}\,\frac{a}{b + x_n - 1}\left(\frac{\alpha + T_n}{\alpha + t_{x,n}}\right)^{r + x_n}}
+vector bgnbd_log_p_alive(array[] int x, vector t_x, vector T, real r, real alpha, real a, real b){
+    int N = num_elements(T);
+    vector[N] k;
+    vector[N] p_alive;
+
+    for(n in 1:N){
+        // Initialize empty vector
+        p_alive[n] = 0;
+        k[n]       = 0;
+        k[n] = log(a) - log(b + x[n] - 1) + (r + x[n]) * (log(alpha + T[n]) - log(alpha + t_x[n]));
+
+        // Calculate Log(P(alive)) from piece function
+        if(x[n] == 0){
+            p_alive[n] = 0;
+        
+        }else{
+            p_alive[n] = -log1p_exp(k[n]);
+        }
+    }
+    // Returns the log probability that each customer is still active at T_n 
+    return p_alive;
+}
+vector bgnbd_log_p_alive(array[] int x, vector t_x, vector T, real r, vector alpha, real a, real b){
+    int N = num_elements(T);
+    vector[N] k;
+    vector[N] p_alive;
+
+    for(n in 1:N){
+        // Initialize empty vector
+        p_alive[n] = 0;
+        k[n]       = 0;
+        k[n] = log(a) - log(b + x[n] - 1) + (r + x[n]) * (log(alpha[n] + T[n]) - log(alpha[n] + t_x[n]));
+
+        // Calculate Log(P(alive)) from piece function
+        if(x[n] == 0){
+            p_alive[n] = 0;
+        
+        }else{
+            p_alive[n] = -log1p_exp(k[n]);
+        }
+    }
+    // Returns the log probability that each customer is still active at T_n 
+    return p_alive;
+}
+vector bgnbd_log_p_alive(array[] int x, vector t_x, vector T, real r, real alpha, vector a, vector b){
+    int N = num_elements(T);
+    vector[N] k;
+    vector[N] p_alive;
+
+    for(n in 1:N){
+        // Initialize empty vector
+        p_alive[n] = 0;
+        k[n]       = 0;
+        k[n] = log(a[n]) - log(b[n] + x[n] - 1) + (r + x[n]) * (log(alpha + T[n]) - log(alpha + t_x[n]));
+
+        // Calculate Log(P(alive)) from piece function
+        if(x[n] == 0){
+            p_alive[n] = 0;
+        
+        }else{
+            p_alive[n] = -log1p_exp(k[n]);
+        }
+    }
+    // Returns the log probability that each customer is still active at T_n 
+    return p_alive;
+}
+vector bgnbd_log_p_alive(array[] int x, vector t_x, vector T, real r, vector alpha, vector a, vector b){
+    int N = num_elements(T);
+    vector[N] k;
+    vector[N] p_alive;
+
+    for(n in 1:N){
+        // Initialize empty vector
+        p_alive[n] = 0;
+        k[n]       = 0;
+        k[n] = log(a[n]) - log(b[n] + x[n] - 1) + (r + x[n]) * (log(alpha[n] + T[n]) - log(alpha[n] + t_x[n]));
+
+        // Calculate Log(P(alive)) from piece function
+        if(x[n] == 0){
+            p_alive[n] = 0;
+        
+        }else{
+            p_alive[n] = -log1p_exp(k[n]);
+        }
+    }
+    // Returns the log probability that each customer is still active at T_n 
+    return p_alive;
+}
+
 // V.3 Expected purchases of a new customer -------------------------------------------------------------------------------------------------------
+// Returns a count. E[ X (52)] = 1.4 means a newly acquired customer is expected to make 1.4 repeat purchases in their first year.
+//@laplace 
+//@brief Beta-Geometric / Negative Binomial : Expected purchases of a new customer for specified time period 
+//@param real t         : Forecast length, in the same time unit as T.
+//@param real r, alpha  : Purchase rates while alive follow lambda ~ Gamma(r, alpha), with mean rate r / alpha.
+//@param real a, b      : Dropout probabilities after each purchase follow pn ~ Beta(a, b), with mean a / (a + b).
+//@return real Expected repeat purchases in 0, t for a randomly chosen new customer.
+//@math
+// \mathbb{E}[X(t)] = \frac{a + b - 1}{a - 1}\left[1 - \left(\frac{\alpha}{\alpha + t}\right)^{r} {}_2F_1\left(r,\ b;\ a + b - 1;\ \frac{t}{\alpha + t}\right)\right], \quad a > 1
+real bgnbd_expected_uncond(real t, real r, real alpha, real a, real b){
+    // It returns the expected repeat purchases in 0, t for a randomly chosen new customer.
+    return ((a + b - 1) / (a - 1)) * (1 - pow(alpha / (alpha + t), r) * hypergeometric_2F1(r, b, a +  b -1, t / (alpha + t))); 
+}
+vector bgnbd_expected_uncond(vector t, real r, real alpha, real a, real b){
+    // It returns the expected repeat purchases in 0, t for a randomly chosen new customer.
+    int N = num_elements(t);
+    vector[N] expect;
+
+    for(n in 1:N){
+        expect[n] = 0;
+        expect[n] = ((a + b - 1) / (a - 1)) * (1 - pow(alpha / (alpha + t[n]), r) * hypergeometric_2F1(r, b, a +  b -1, t[n] / (alpha + t[n]))); 
+    }
+    return expect;
+}
+
 // V.4 Expected future purchases of an existing customer ------------------------------------------------------------------------------------------
+// Private helper all parameters per customer, P(alive) passed in on the log scale.
+vector cst_bgnbd_expected_cond(real t, array[] int x, vector T, real r, vector alpha, vector a, vector b, vector log_p_alive){
+    int N = num_elements(T);
+    vector[N] expected;
+
+    for(n in 1:N){
+        real zn = t / (alpha[n] + T[n] + t);
+        expected[n] = exp(log_p_alive[n])
+                    * ((a[n] + b[n] + x[n] - 1) / (a[n] - 1))
+                    * (1 - pow((alpha[n] + T[n]) / (alpha[n] + T[n] + t), r + x[n])
+                         * hypergeometric_2F1(r + x[n], b[n] + x[n], a[n] + b[n] + x[n] - 1, zn));
+    }
+    return expected;
+}
+
+//@laplace 
+//@brief Beta-Geometric / Negative Binomial : Expected future purchases of an existing customer in (T_n, T_n + t]
+//@param real t           : Forecast length, in the same time unit as T. A vector t returns one column per horizon.
+//@param array[] int x    : Repeat purchases
+//@param vector t_x       : Recency: Time of the last repeat purchase, measured from the first purchase.
+//@param vector T         : Time from the first purchase to the end of the data.
+//@param real r, alpha    : Purchase rates while alive follow lambda ~ Gamma(r, alpha), with mean rate r / alpha. alpha may be per-customer (vector).
+//@param real a, b        : Dropout probabilities after each purchase follow pn ~ Beta(a, b), with mean a / (a + b). a, b may be per-customer (vector).
+//@return vector[N] expected purchases per customer for real t; matrix[N, K] with column k = horizon t[k] for vector t.
+//@math
+// z_n = \frac{t}{\alpha + T_n + t} \\
+// \mathbb{E}[Y_n(t)] = P_n(\text{alive})\,\frac{a + b + x_n - 1}{a - 1}\left[1 - \left(\frac{\alpha + T_n}{\alpha + T_n + t}\right)^{r + x_n} {}_2F_1\left(r + x_n,\ b + x_n;\ a + b + x_n - 1;\ z_n\right)\right], \quad a > 1 \\
+// P_n(\text{alive}) = \exp\left(\texttt{bgnbd\_log\_p\_alive}\right) \ \text{(V.2)} \\
+// \alpha \to \alpha_n,\ a \to a_n,\ b \to b_n \ \text{for the per-customer overloads}
+vector bgnbd_expected_cond(real t, array[] int x, vector t_x, vector T, real r, real alpha, real a, real b){
+    int N = num_elements(T);
+    return cst_bgnbd_expected_cond(t, x, T, r, rep_vector(alpha, N), rep_vector(a, N), rep_vector(b, N), bgnbd_log_p_alive(x, t_x, T, r, alpha, a, b));
+}
+// Covariates on the purchase rate: alpha per customer
+vector bgnbd_expected_cond(real t, array[] int x, vector t_x, vector T, real r, vector alpha, real a, real b){
+    int N = num_elements(T);
+    return cst_bgnbd_expected_cond(t, x, T, r, alpha, rep_vector(a, N), rep_vector(b, N), bgnbd_log_p_alive(x, t_x, T, r, alpha, a, b));
+}
+// Covariates on dropout: a, b per customer
+vector bgnbd_expected_cond(real t, array[] int x, vector t_x, vector T, real r, real alpha, vector a, vector b){
+    int N = num_elements(T);
+    return cst_bgnbd_expected_cond(t, x, T, r, rep_vector(alpha, N), a, b, bgnbd_log_p_alive(x, t_x, T, r, alpha, a, b));
+}
+// Covariates on both: alpha, a, b per customer
+vector bgnbd_expected_cond(real t, array[] int x, vector t_x, vector T, real r, vector alpha, vector a, vector b){
+    return cst_bgnbd_expected_cond(t, x, T, r, alpha, a, b, bgnbd_log_p_alive(x, t_x, T, r, alpha, a, b));
+}
+
+// Several horizons at once (used by V.11): column k = E[Y_n(t[k])]. P(alive) is computed once.
+matrix bgnbd_expected_cond(vector t, array[] int x, vector t_x, vector T, real r, real alpha, real a, real b){
+    int N = num_elements(T);
+    int K = num_elements(t);
+    matrix[N, K] E;
+    vector[N] lp = bgnbd_log_p_alive(x, t_x, T, r, alpha, a, b);
+    for(k in 1:K)
+        E[, k] = cst_bgnbd_expected_cond(t[k], x, T, r, rep_vector(alpha, N), rep_vector(a, N), rep_vector(b, N), lp);
+    return E;
+}
+matrix bgnbd_expected_cond(vector t, array[] int x, vector t_x, vector T, real r, vector alpha, real a, real b){
+    int N = num_elements(T);
+    int K = num_elements(t);
+    matrix[N, K] E;
+    vector[N] lp = bgnbd_log_p_alive(x, t_x, T, r, alpha, a, b);
+    for(k in 1:K)
+        E[, k] = cst_bgnbd_expected_cond(t[k], x, T, r, alpha, rep_vector(a, N), rep_vector(b, N), lp);
+    return E;
+}
+matrix bgnbd_expected_cond(vector t, array[] int x, vector t_x, vector T, real r, real alpha, vector a, vector b){
+    int N = num_elements(T);
+    int K = num_elements(t);
+    matrix[N, K] E;
+    vector[N] lp = bgnbd_log_p_alive(x, t_x, T, r, alpha, a, b);
+    for(k in 1:K)
+        E[, k] = cst_bgnbd_expected_cond(t[k], x, T, r, rep_vector(alpha, N), a, b, lp);
+    return E;
+}
+matrix bgnbd_expected_cond(vector t, array[] int x, vector t_x, vector T, real r, vector alpha, vector a, vector b){
+    int N = num_elements(T);
+    int K = num_elements(t);
+    matrix[N, K] E;
+    vector[N] lp = bgnbd_log_p_alive(x, t_x, T, r, alpha, a, b);
+    for(k in 1:K)
+        E[, k] = cst_bgnbd_expected_cond(t[k], x, T, r, alpha, a, b, lp);
+    return E;
+}
