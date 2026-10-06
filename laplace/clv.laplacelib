@@ -546,6 +546,8 @@ vector bgnbd_indiv_loglik(array[] int x, vector t_x, vector T, vector lambda, ve
 //@param vector T      : Time from the first purchase to the end of the data.
 //@param vector lambda : Purchase rate while alive.
 //@param vector mu     : Constant churn hazard that applies at any moment, not only after purchases.
+//@math
+// \ell_n = x_n\log\lambda_n - \log(\lambda_n + \mu_n) + \log\left(e^{\log\mu_n - (\lambda_n + \mu_n)t_{x,n}} + e^{\log\lambda_n - (\lambda_n + \mu_n)T_n}\right)
 vector pnbd_indiv_loglik(array[] int x, vector t_x, vector T, vector lambda, vector mu){
     int N = num_elements(lambda);
     vector[N] ln;
@@ -598,6 +600,8 @@ vector pnbd_indiv_loglik(array[] int x, vector t_x, vector T, vector lambda, rea
 //@param vector T      :  Time from the first purchase to the end of the data.
 //@param vector lambda : Purchase rate while alive.
 //@param vector mu     : Constant churn hazard that applies at any moment, not only after purchases.
+//@math
+// \log L = \sum_{n=1}^{N}\ell_n, \quad \ell_n \text{ as in pnbd\_indiv\_loglik}
 real pnbd_indiv_lpmf(array[] int x, vector t_x, vector T, vector lambda, vector mu){
     return sum( pnbd_indiv_loglik(x, t_x, T, lambda, mu));
 }
@@ -618,6 +622,9 @@ real pnbd_indiv_lpmf(array[] int x, vector t_x, vector T, real lambda, vector mu
 //@param vector T      : Time from the first purchase to the end of the data.
 //@param vector lambda : Purchase rate while alive.
 //@param vector mu     : Constant churn hazard that applies at any moment, not only after purchases.
+//@math
+// \log P_n(\text{alive}) = \log(\lambda_n + \mu_n) - (\lambda_n + \mu_n)T_n - \log\left(e^{\log\mu_n - (\lambda_n + \mu_n)t_{x,n}} + e^{\log\lambda_n - (\lambda_n + \mu_n)T_n}\right) \\
+// P_n(\text{alive}) = \frac{1}{1 + \frac{\mu_n}{\lambda_n + \mu_n}\left(e^{\Delta_n} - 1\right)}, \quad \Delta_n = (\lambda_n + \mu_n)(T_n - t_{x,n})
 vector pnbd_log_p_alive(array[] int x, vector t_x, vector T, vector lambda, vector mu){
     int N = num_elements(lambda);
     vector[N] p_alive;
@@ -669,6 +676,8 @@ vector pnbd_log_p_alive(array[] int x, vector t_x, vector T, real lambda, vector
 //@param vector lambda      : Purchase rate while alive.
 //@param real delta         : Continuous discount rate per time unit.
 //@param vector mu          : Constant churn hazard that applies at any moment, not only after purchases.
+//@math
+// \operatorname{DET}_n = P_n(\text{alive})\int_0^\infty \lambda_n e^{-(\mu_n + \delta)s}\,ds = P_n(\text{alive})\,\frac{\lambda_n}{\mu_n + \delta}
 vector pnbd_det(vector log_p_alive, vector lambda, vector mu, real delta){
     return log_p_alive .* (lambda ./ mu + delta);
 }
@@ -680,6 +689,8 @@ vector pnbd_det(vector log_p_alive, vector lambda, vector mu, real delta){
 //@param vector lambda      : Purchase rate while alive.
 //@param vector mu          : Constant churn hazard that applies at any moment, not only after purchases.
 //@param real t             : Future Event Horizon
+//@math
+// \mathbb{E}[Y_n(t)] = P_n(\text{alive})\,\frac{\lambda_n}{\mu_n}\left(1 - e^{-\mu_n t}\right), \quad \mu_n \to 0: \ \mathbb{E}[Y_n(t)] \to P_n(\text{alive})\,\lambda_n t
 vector pnbd_expected_cond(real t, vector log_p_alive, vector lambda, vector mu){
     return log_p_alive .* (lambda ./ mu) .* (1 - exp(-mu * t));
 }
@@ -689,6 +700,9 @@ vector pnbd_expected_cond(real t, vector log_p_alive, vector lambda, vector mu){
 //@param real T      : Time from the first purchase to the end of the data.
 //@param real lambda : Purchase rate while alive.
 //@param real mu     : Constant churn hazard that applies at any moment, not only after purchases.
+//@math
+// \tau \sim \mathrm{Exponential}(\mu), \quad e = \min(\tau, T), \quad x \sim \mathrm{Poisson}(\lambda e) \\
+// t_x = 0 \ \text{if } x = 0, \qquad t_x = e\,U^{1/x},\ U \sim \mathrm{Uniform}(0,1) \ \text{if } x > 0
 vector pnbd_indiv_rng(real T, real lambda, real mu){
     real rho = exponential_rng(mu);
     real ex  = rho > T ?  T : rho;
@@ -710,6 +724,9 @@ vector pnbd_indiv_rng(real T, real lambda, real mu){
 //@param real T              : Time from the first purchase to the end of the data.
 //@param real r, real alpha  : lambda ~ Gamma(r, alpha);
 //@param real s, real beta   : mu     ~ Gamma(s, beta);
+//@math
+// \lambda \sim \mathrm{Gamma}(r, \alpha), \quad \mu \sim \mathrm{Gamma}(s, \beta) \\
+// (x, t_x) = \texttt{pnbd\_indiv\_rng}(T, \lambda, \mu)
 vector pnbd_rng(real T, real r, real alpha, real s, real beta){
     real lambda = gamma_rng(r, alpha);
     real mu     = gamma_rng(s, beta);
