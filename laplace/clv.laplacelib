@@ -814,7 +814,33 @@ vector gg_expected_spend(vector mbar, data array[] int x, real p, real q, vector
     return spend;
 }
 
-
-
-
 // V.9 Customer lifetime value -----------------------------------------------------------------------------------------------------------------
+//@laplace
+//@brief Customer Lifetime Value Calculated From any Spend Model
+//@param matrix C[n, k] : Cumulative expected purchases up to the end of future period k, with n = 0.
+//@param vector spend   : Expected Average value of customer nt repeated transaction.
+//@param real margin    : Profit share of revenue, in (0, 1]
+//@param real d         : Discount rate per period of length Delta.
+//@math
+// C_{nk} = \mathbb{E}[Y_n(k\Delta)], \quad C_{n0} = 0 \\
+// \operatorname{CLV}_n = \text{margin}\cdot\mathbb{E}[M_n]\sum_{k=1}^{K}\frac{C_{nk} - C_{n,k-1}}{(1 + d)^{k}}
+vector clv_discrete(matrix C, vector spend, real margin, real d){
+    int N = rows(C);
+    int K = cols(C);
+    
+    vector[N] clv;
+    vector[N] margin_spend;
+    
+    for (n in 1:N) {
+        margin_spend[n] = margin * spend[n];
+        
+        for (k in 1:K) {
+            if (k == 1) {
+                clv[n] += margin_spend[n] * C[n, k] / pow(1 + d, k);
+            } else {
+                clv[n] += margin_spend[n] * (C[n, k] - C[n, k - 1]) / pow(1 + d, k);
+            }
+        }
+    }
+    return clv;
+}
