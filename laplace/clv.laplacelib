@@ -510,3 +510,212 @@ matrix bgnbd_rng(vector T, real r, vector alpha, vector a, vector b){
     }
     return L;
 }
+
+// V.6 Individual-level BG/NBD (hierarchical, with covariates) ----------------------------------------------------------------------------------
+//@laplace
+//@brief Beta-Geometric / Negative Binomial Individual Log Likelihood with covariates
+//@param array[] int x    : Repeat purchases
+//@param vector t_x       : Recency: Time of the last repeat purchase, measured from the first purchase.
+//@param vector T         : Time from the first purchase to the end of the data.
+//@param vector lambda    : Customer n s purchase rate while alive
+//@param vector p         : Customer n s dropout probability after each repeat purchase
+vector bgnbd_indiv_loglik(array[] int x, vector t_x, vector T, vector lambda, vector p){
+    int N = num_elements(lambda);
+    vector[N] Ln;
+
+    for(n in 1:N){
+        Ln[n] = 0;
+        
+        if(x[n] == 0){
+            Ln[n] = -lambda[n] * T[n];
+        
+        }else{
+            Ln[n] = x[n] * log(lambda[n]) + (x[n] - 1)
+                         * log(1 - p[n]) 
+                         + log(exp(log(1 - p[n]) - lambda[n] * T[n]) + exp(log(1 - p[n]) - lambda[n] * t_x[n]));
+        }
+    }
+    return Ln;
+}
+
+// V.7 Pareto/NBD (individual level) and discounted expected transactions -----------------------------------------------------------------------
+//@laplace 
+//@brief Pareto-Negative Binomial Log Likelihood 
+//@param array[] int x : Repeat purchases
+//@param vector t_x    : Recency: Time of the last repeat purchase, measured from the first purchase.
+//@param vector T      : Time from the first purchase to the end of the data.
+//@param vector lambda : Purchase rate while alive.
+//@param vector mu     : Constant churn hazard that applies at any moment, not only after purchases.
+vector pnbd_indiv_loglik(array[] int x, vector t_x, vector T, vector lambda, vector mu){
+    int N = num_elements(lambda);
+    vector[N] ln;
+    for(n in 1:N){
+        ln[n] = 0;
+        ln[n] = x[n] * log(lambda[n]) - log(lambda[n] - mu[n]) 
+                     + log(exp(log(mu[n] - (lambda[n] + mu[n]) * t_x[n])) 
+                     + exp(log(lambda[n] - (lambda[n] + mu[n]) * T[n])));
+    }
+    return ln;
+}
+vector pnbd_indiv_loglik(array[] int x, vector t_x, vector T, real lambda, vector mu){
+    int N = num_elements(t_x);
+    vector[N] ln;
+    for(n in 1:N){
+        ln[n] = 0;
+        ln[n] = x[n] * log(lambda) - log(lambda - mu[n]) 
+                     + log(exp(log(mu[n] - (lambda + mu[n]) * t_x[n])) 
+                     + exp(log(lambda - (lambda + mu[n]) * T[n])));
+    }
+    return ln;
+}
+vector pnbd_indiv_loglik(array[] int x, vector t_x, vector T, real lambda, real mu){
+    int N = num_elements(t_x);
+    vector[N] ln;
+    for(n in 1:N){
+        ln[n] = 0;
+        ln[n] = x[n] * log(lambda) - log(lambda - mu) 
+                     + log(exp(log(mu - (lambda + mu) * t_x[n])) 
+                     + exp(log(lambda - (lambda + mu) * T[n])));
+    }
+    return ln;
+}
+vector pnbd_indiv_loglik(array[] int x, vector t_x, vector T, vector lambda, real mu){
+    int N = num_elements(t_x);
+    vector[N] ln;
+    for(n in 1:N){
+        ln[n] = 0;
+        ln[n] = x[n] * log(lambda[n]) - log(lambda[n] - mu) 
+                     + log(exp(log(mu - (lambda[n] + mu) * t_x[n])) 
+                     + exp(log(lambda[n] - (lambda[n] + mu) * T[n])));
+    }
+    return ln;
+}
+
+//@laplace 
+//@brief Pareto-Negative Binomial Individual Log Pointwise Mass function
+//@param array[] int x : Repeat purchases
+//@param vector t_x    : Recency: Time of the last repeat purchase, measured from the first purchase.
+//@param vector T      :  Time from the first purchase to the end of the data.
+//@param vector lambda : Purchase rate while alive.
+//@param vector mu     : Constant churn hazard that applies at any moment, not only after purchases.
+real pnbd_indiv_lpmf(array[] int x, vector t_x, vector T, vector lambda, vector mu){
+    return sum( pnbd_indiv_loglik(x, t_x, T, lambda, mu));
+}
+real pnbd_indiv_lpmf(array[] int x, vector t_x, vector T, real lambda, real mu){
+    return sum( pnbd_indiv_loglik(x, t_x, T, lambda, mu));
+}
+real pnbd_indiv_lpmf(array[] int x, vector t_x, vector T, vector lambda, real mu){
+    return sum( pnbd_indiv_loglik(x, t_x, T, lambda, mu));
+}
+real pnbd_indiv_lpmf(array[] int x, vector t_x, vector T, real lambda, vector mu){
+    return sum( pnbd_indiv_loglik(x, t_x, T, lambda, mu));
+}
+
+//@laplace
+//@brief Pareto-Negative Binomial Log Probability of a customer being alive
+//@param array[] int x : Repeat purchases
+//@param vector t_x    : Recency: Time of the last repeat purchase, measured from the first purchase.
+//@param vector T      : Time from the first purchase to the end of the data.
+//@param vector lambda : Purchase rate while alive.
+//@param vector mu     : Constant churn hazard that applies at any moment, not only after purchases.
+vector pnbd_log_p_alive(array[] int x, vector t_x, vector T, vector lambda, vector mu){
+    int N = num_elements(lambda);
+    vector[N] p_alive;
+    vector[N] delta;
+
+    for(n in 1:N){
+        delta[n]   = (lambda[n] + mu[n]) * (T[n] - t_x[n]);
+        p_alive[n] = 1 / (1 + (mu[n] / (lambda[n] + mu[n])) * log1m_exp(-delta[n])); 
+    }
+    return p_alive;
+}
+vector pnbd_log_p_alive(array[] int x, vector t_x, vector T, real lambda, real mu){
+    int N = num_elements(t_x);
+    vector[N] p_alive;
+    vector[N] delta;
+
+    for(n in 1:N){
+        delta[n]   = (lambda + mu) * (T[n] - t_x[n]);
+        p_alive[n] = 1 / (1 + (mu / (lambda + mu)) * log1m_exp(-delta[n])); 
+    }
+    return p_alive;
+}
+vector pnbd_log_p_alive(array[] int x, vector t_x, vector T, vector lambda, real mu){
+    int N = num_elements(t_x);
+    vector[N] p_alive;
+    vector[N] delta;
+
+    for(n in 1:N){
+        delta[n]   = (lambda[n] + mu) * (T[n] - t_x[n]);
+        p_alive[n] = 1 / (1 + (mu / (lambda[n] + mu)) * log1m_exp(-delta[n])); 
+    }
+    return p_alive;
+}
+vector pnbd_log_p_alive(array[] int x, vector t_x, vector T, real lambda, vector mu){
+    int N = num_elements(t_x);
+    vector[N] p_alive;
+    vector[N] delta;
+
+    for(n in 1:N){
+        delta[n]   = (lambda + mu[n]) * (T[n] - t_x[n]);
+        p_alive[n] = 1 / (1 + (mu[n] / (lambda + mu[n])) * log1m_exp(-delta[n])); 
+    }
+    return p_alive;
+}
+
+//@laplace
+//@brief Pareto-Negative Binomial Discounted Expected Transactions
+//@param vector log_p_alive : Log Probability of a customer being alive
+//@param vector lambda      : Purchase rate while alive.
+//@param real delta         : Continuous discount rate per time unit.
+//@param vector mu          : Constant churn hazard that applies at any moment, not only after purchases.
+vector pnbd_det(vector log_p_alive, vector lambda, vector mu, real delta){
+    return log_p_alive .* (lambda ./ mu + delta);
+}
+
+
+//@laplace 
+//@brief Pareto-Negative Binomial Expected purchases
+//@param vector log_p_alive : Log Probability of a customer being alive
+//@param vector lambda      : Purchase rate while alive.
+//@param vector mu          : Constant churn hazard that applies at any moment, not only after purchases.
+//@param real t             : Future Event Horizon
+vector pnbd_expected_cond(real t, vector log_p_alive, vector lambda, vector mu){
+    return log_p_alive .* (lambda ./ mu) .* (1 - exp(-mu * t));
+}
+
+//@laplace
+//@brief Pareto-Negative Binomial Individual Random Number Generator
+//@param real T      : Time from the first purchase to the end of the data.
+//@param real lambda : Purchase rate while alive.
+//@param real mu     : Constant churn hazard that applies at any moment, not only after purchases.
+vector pnbd_indiv_rng(real T, real lambda, real mu){
+    real rho = exponential_rng(mu);
+    real ex  = rho > T ?  T : rho;
+    real x   = poisson_rng(lambda* ex);  
+
+    vector[2] ret;
+    ret[1] = x;
+    if(x == 0){
+        ret[2] = 0;
+    }else{
+        real U = uniform_rng(0, 1);
+        ret[2] = ex * pow(U, 1 / x);
+    }
+    return ret;
+}
+
+//@laplace 
+//@brief Pareto-Negative Binomial Random Number Generator
+//@param real T              : Time from the first purchase to the end of the data.
+//@param real r, real alpha  : lambda ~ Gamma(r, alpha);
+//@param real s, real beta   : mu     ~ Gamma(s, beta);
+vector pnbd_rng(real T, real r, real alpha, real s, real beta){
+    real lambda = gamma_rng(r, alpha);
+    real mu     = gamma_rng(s, beta);
+    return pnbd_indiv_rng(T, lambda, mu);
+}
+
+// V.8 Gamma-gamma spend model ------------------------------------------------------------------------------------------------------------------
+
+// V.10 Customer lifetime value -----------------------------------------------------------------------------------------------------------------
