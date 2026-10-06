@@ -734,5 +734,87 @@ vector pnbd_rng(real T, real r, real alpha, real s, real beta){
 }
 
 // V.8 Gamma-gamma spend model ------------------------------------------------------------------------------------------------------------------
+//@laplace 
+//@brief Gamma-Gamma Spend Log Likelihood
+//@param vector m_bar       : Average value of customer nt repeated transaction.
+//@param data array[] int x : Number of transactions averaged
+//@param real p             : Shape of individual transaction values as z ~ Gamma(p, v).
+//@param real q, g          : how spend levels vary across customers: nu ~ Gamma(q, g).
+//@math
+// z_{ni} \sim \mathrm{Gamma}(p, \nu_n), \quad \nu_n \sim \mathrm{Gamma}(q, g), \quad \bar m_n \mid \nu_n \sim \mathrm{Gamma}(p x_n,\ \nu_n x_n) \\
+// \ell_n = \log\Gamma(p x_n + q) - \log\Gamma(p x_n) - \log\Gamma(q) + q\log g + p x_n\log x_n + (p x_n - 1)\log\bar m_n - (p x_n + q)\log(g + x_n\bar m_n), \quad x_n \ge 1
+vector gg_loglik(vector mbar, data array[] int x, real p, real q, real g){
+    int N = num_elements(mbar);
+    vector[N] ln;
 
-// V.10 Customer lifetime value -----------------------------------------------------------------------------------------------------------------
+    for(n in 1:N){
+        ln[n] = 0;
+        ln[n] = lgamma(p * x[n] + q) - lgamma(p * x[n]) + q   * 
+                log(g) + p * x[n] * log(x[n]) + (p * x[n] - 1) * 
+                log(mbar[n]) - (p * x[n] + q) * log(g + x[n] * mbar[n]);
+    }
+    return ln;
+}
+vector gg_loglik(vector mbar, data array[] int x, real p, real q, vector g){
+    int N = num_elements(mbar);
+    vector[N] ln;
+
+    for(n in 1:N){
+        ln[n] = 0;
+        ln[n] = lgamma(p * x[n] + q) - lgamma(p * x[n]) + q   * 
+                log(g[n]) + p * x[n] * log(x[n]) + (p * x[n] - 1) * 
+                log(mbar[n]) - (p * x[n] + q) * log(g[n] + x[n] * mbar[n]);
+    }
+    return ln;
+}
+
+//@laplace
+//@brief Gamma-Gamma Log Pointwise Density Function
+//@param vector m_bar       : Average value of customer nt repeated transaction.
+//@param data array[] int x : Number of transactions averaged
+//@param real p             : Shape of individual transaction values as z ~ Gamma(p, v).
+//@param real q, g          : how spend levels vary across customers: nu ~ Gamma(q, g).
+//@math
+// f(\bar m_n \mid x_n) = \frac{\Gamma(p x_n + q)}{\Gamma(p x_n)\,\Gamma(q)}\,\frac{g^{q}\,x_n^{p x_n}\,\bar m_n^{\,p x_n - 1}}{(g + x_n\bar m_n)^{p x_n + q}} \\
+// \log L = \sum_{n:\,x_n \ge 1} \log f(\bar m_n \mid x_n)
+real gg_lpdf(vector mbar, data array[] int x, real p, real q, real g){
+    return sum(gg_loglik(mbar, x, p, q, g));
+}
+real gg_lpdf(vector mbar, data array[] int x, real p, real q, vector g){
+    return sum(gg_loglik(mbar, x, p, q, g));
+}
+
+//@laplace 
+//@brief Gamma-Gamma Expected Spend
+//@param vector m_bar       : Average value of customer nt repeated transaction.
+//@param data array[] int x : Number of transactions averaged
+//@param real p             : Shape of individual transaction values as z ~ Gamma(p, v).
+//@param real q, g          : how spend levels vary across customers: nu ~ Gamma(q, g).
+//@math
+// \mathbb{E}[M_n \mid \bar m_n, x_n] = \frac{p\,(g + x_n\bar m_n)}{p x_n + q - 1} = w_n\,\frac{p g}{q - 1} + (1 - w_n)\,\bar m_n, \quad w_n = \frac{q - 1}{p x_n + q - 1} \\
+// x_n = 0: \ \mathbb{E}[M_n] = \frac{p g}{q - 1}, \quad q > 1
+vector gg_expected_spend(vector mbar, data array[] int x, real p, real q, real g){
+    int N = num_elements(mbar);
+    vector[N] spend;
+
+    for(n in 1:N){
+        spend[n] = 0;
+        spend[n] = (p * (g + x[n] * mbar[n])) / (p * x[n] + q - 1);
+    }
+    return spend;
+}
+vector gg_expected_spend(vector mbar, data array[] int x, real p, real q, vector g){
+    int N = num_elements(mbar);
+    vector[N] spend;
+
+    for(n in 1:N){
+        spend[n] = 0;
+        spend[n] = (p * (g[n] + x[n] * mbar[n])) / (p * x[n] + q - 1);
+    }
+    return spend;
+}
+
+
+
+
+// V.9 Customer lifetime value -----------------------------------------------------------------------------------------------------------------
