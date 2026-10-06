@@ -1,0 +1,87 @@
+name = "customer"
+version = "0.1.0"
+exports = [
+    "churn_gompertz_delta_H",
+    "churn_makeham_delta_H",
+    "churn_log_logistics_delta_H",
+    "churn_cond_surv",
+    "churn_prob",
+    "churn_gompertz_rmrl",
+    "churn_makeham_rmrl",
+    "churn_log_logistics_rmrl",
+    "churn_value_discrete",
+    "churn_gompertz_value",
+    "churn_cure_loglik",
+    "churn_cure_ll",
+    "churn_cure_p_loyal",
+    "churn_cure_gompertz_lpdf",
+    "churn_cure_gompertz_rng",
+    "churn_cure_makeham_lpdf",
+    "churn_cure_makeham_rng",
+    "churn_cure_log_logistics_lpdf",
+    "churn_cure_log_logistics_rng",
+    "churn_frailty_loglik",
+    "churn_frailty_ll",
+    "churn_frailty_score",
+    "churn_frailty_cond_surv",
+    "churn_frailty_gompertz_lpdf",
+    "churn_frailty_gompertz_rng",
+    "churn_frailty_makeham_lpdf",
+    "churn_frailty_makeham_rng",
+    "churn_frailty_log_logistics_lpdf",
+    "churn_frailty_log_logistics_rng",
+    "churn_competing_loglik",
+    "churn_competing_ll",
+    "churn_competing_cif",
+    "churn_competing_gompertz_lpdf",
+    "churn_competing_gompertz_rng",
+    "churn_competing_gompertz_cif",
+    "churn_competing_makeham_lpdf",
+    "churn_competing_makeham_rng",
+    "churn_competing_makeham_cif",
+    "churn_segment_L",
+    "churn_segment_gompertz_L",
+    "churn_segment_makeham_L",
+    "churn_segment_cond_surv",
+    "bgnbd_loglik",
+    "bgnbd_lpmf",
+    "bgnbd_weighted_lpmf",
+    "bgnbd_log_p_alive",
+    "bgnbd_expected_uncond",
+    "bgnbd_expected_cond",
+    "bgnbd_indiv_rng",
+    "bgnbd_rng",
+    "bgnbd_indiv_loglik",
+    "pnbd_indiv_loglik",
+    "pnbd_indiv_lpmf",
+    "pnbd_log_p_alive",
+    "pnbd_det",
+    "pnbd_expected_cond",
+    "pnbd_indiv_rng",
+    "pnbd_rng",
+    "gg_loglik",
+    "gg_lpdf",
+    "gg_expected_spend",
+    "clv_discrete",
+    "quad_nodes",
+    "quad_weights",
+    "log_quad",
+    "disc_factor",
+    "cont_disc",
+    "h2f1",
+]
+
+[dependencies.cluster]
+git = "https://github.com/mlatinov/laplace-cluster"
+tag = "0.1.0"
+subdir = "laplace"
+
+[dependencies.splines]
+git = "https://github.com/mlatinov/laplace-splines"
+tag = "0.1.0"
+subdir = "laplace"
+
+[dependencies.survival]
+git = "https://github.com/mlatinov/laplace-survival"
+tag = "0.1.1"
+subdir = "laplace"
